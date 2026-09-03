@@ -132,6 +132,9 @@ func runVKEdgeLoginFlow(ctx context.Context, session *vkEdgeSession) (vkLegacyTo
 		}
 
 		if phase == "login" {
+			if isVKLoginRateLimitedText(state.Body) {
+				return vkLegacyToken{}, false, errors.New("VK временно ограничил вход: слишком много попыток. Попробуйте позже; PWDTT не будет повторять вход автоматически")
+			}
 			if strings.Contains(strings.ToLower(state.Body), "unknown method") {
 				return vkLegacyToken{}, true, errors.New("VK ID вернул Unknown method passed")
 			}
