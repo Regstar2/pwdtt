@@ -32,7 +32,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Test VK hash backend
-        run: go test ./backend -run 'Test(BuildLegacyVKAuthorizeURLMatchesQWDTTFlow|ParseLegacyVKTokenURL|NormalizeVKCallHash|VKAPIClientStartCall|GenerateVKHashes)'
+        run: go test ./backend -run 'Test(BuildLegacyVKAuthorizeURLMatchesQWDTTFlow|ParseLegacyVKTokenURL|ParseLegacyVKAuthorizeHop|NormalizeVKCallHash|VKAPIClientStartCall|GenerateVKHashes)'
 
       - name: Verify WebView2 override
         run: test "$(go list -m -f '{{.Version}}' github.com/wailsapp/go-webview2)" = "v1.0.23"
