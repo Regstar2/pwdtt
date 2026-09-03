@@ -59,6 +59,13 @@ func runVKAuthHelperProcess(action string) (response vkAuthHelperResponse) {
 	case "login":
 		ctx, cancel := context.WithTimeout(context.Background(), vkOAuthTimeout)
 		defer cancel()
+		if err := loginLegacyVKSessionInWebView(ctx); err != nil {
+			response.Error = helperFriendlyVKError(err, ctx)
+		}
+		return response
+	case "token":
+		ctx, cancel := context.WithTimeout(context.Background(), vkOAuthTimeout)
+		defer cancel()
 		token, err := obtainLegacyVKTokenInWebView(ctx)
 		if err != nil {
 			response.Error = helperFriendlyVKError(err, ctx)
@@ -115,7 +122,7 @@ func runLegacyVKAuthHelper(ctx context.Context, action string) (vkLegacyToken, e
 	if response.Error != "" {
 		return vkLegacyToken{}, errors.New(response.Error)
 	}
-	if action == "clear" {
+	if action == "clear" || action == "login" {
 		return vkLegacyToken{}, nil
 	}
 	if response.AccessToken == "" {
