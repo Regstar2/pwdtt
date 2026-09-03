@@ -25,19 +25,49 @@ const (
 
 var vkModernReturnAuthRE = regexp.MustCompile(`(?s)"return_auth"\s*:\s*"([^"\\]+)"`)
 
+// obtainLegacyVKTokenAdaptive keeps qWDTT as the primary token path. Current
+// VK can migrate that legacy GET chain to login.vk.ru and loop there; only for
+// that observed condition do we switch to VK's current seamless .ru exchange.
+func obtainLegacyVKTokenAdaptive(ctx context.Context) (vkLegacyToken, error) {
+	token, err := obtainLegacyVKTokenQWDTT(ctx)
+	if err == nil {
+		return token, nil
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "цикл redirect") {
+		return vkLegacyToken{}, err
+	}
+
+	session, sessionErr := startVKEdgeSession(ctx, "https://m.vk.ru/", vkLegacyMobileUserAgent)
+	if sessionErr != nil {
+		return vkLegacyToken{}, fmt.Errorf("qWDTT OAuth зациклился; не удалось открыть VK .ru fallback: %w", sessionErr)
+	}
+	defer session.close()
+
+	hasSession, sessionErr := session.hasVKSessionCookie(ctx)
+	if sessionErr != nil {
+		return vkLegacyToken{}, fmt.Errorf("qWDTT OAuth зациклился; не удалось проверить VK-сессию: %w", sessionErr)
+	}
+	if !hasSession {
+		return vkLegacyToken{}, errors.New("qWDTT OAuth зациклился, а сохранённая VK-сессия отсутствует")
+	}
+
+	modernToken, modernErr := session.obtainLegacyVKTokenViaModernRU(ctx)
+	if modernErr != nil {
+		return vkLegacyToken{}, fmt.Errorf("qWDTT OAuth зациклился; VK .ru seamless fallback: %w", modernErr)
+	}
+	return modernToken, nil
+}
+
 // obtainLegacyVKTokenViaModernRU handles the current VK *.ru seamless-auth
-// transition used after a valid browser session. It is only a fallback for the
-// qWDTT legacy OAuth path when VK redirects that path into a loop on
-// login.vk.ru. The application id and requested permission remain the qWDTT
-// values (6287487 / messages).
+// transition used after a valid browser session. The application id and
+// requested permission remain the qWDTT values (6287487 / messages).
 func (s *vkEdgeSession) obtainLegacyVKTokenViaModernRU(ctx context.Context) (vkLegacyToken, error) {
 	client, err := s.newModernRUVKHTTPClient(ctx)
 	if err != nil {
 		return vkLegacyToken{}, err
 	}
 
-	authorizeURL := buildModernRUAuthorizeURL()
-	resp, err := client.Get(authorizeURL)
+	resp, err := client.Get(buildModernRUAuthorizeURL())
 	if err != nil {
 		return vkLegacyToken{}, fmt.Errorf("VK .ru authorize: %w", err)
 	}
@@ -54,7 +84,10 @@ func (s *vkEdgeSession) obtainLegacyVKTokenViaModernRU(ctx context.Context) (vkL
 		return token, nil
 	}
 
-	returnAuthHash := extractModernRUReturnAuthHash(body)
+	returnAuthHash := extractModernRUReturnAuthHashFromURL(finalURL)
+	if returnAuthHash == "" {
+		returnAuthHash = extractModernRUReturnAuthHash(body)
+	}
 	if returnAuthHash == "" {
 		return vkLegacyToken{}, errors.New("VK .ru authorize не вернул return_auth hash")
 	}
@@ -173,6 +206,14 @@ func extractModernRUReturnAuthHash(body string) string {
 	return strings.TrimSpace(match[1])
 }
 
+func extractModernRUReturnAuthHashFromURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(parsed.Query().Get("return_auth_hash"))
+}
+
 func parseModernRUAccessTokenURL(raw string) (vkLegacyToken, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -236,5 +277,11 @@ func (s *vkEdgeSession) newModernRUVKHTTPClient(ctx context.Context) (*http.Clie
 	return &http.Client{
 		Jar:     jar,
 		Timeout: 20 * time.Second,
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= 30 {
+				return errors.New("VK .ru authorize превысил 30 redirect")
+			}
+			return nil
+		},
 	}, nil
 }
