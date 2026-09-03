@@ -1,111 +1,144 @@
 # VK OAuth для генерации хешей в Windows
 
-Автогенерация VK-хешей повторяет рабочий flow qWDTT, адаптированный под Windows/Wails. Собственный VK ID `app_id` не требуется.
+PWDTT умеет автоматически создавать VK-звонки и извлекать хеши из `join_link` на Windows.
 
-Используются те же публичные параметры, что и в qWDTT:
+## Рабочая схема
+
+Основной token-flow использует публичное приложение VK Calls:
 
 ```text
-client_id=6287487
-redirect_uri=https://oauth.vk.com/blank.html
+client_id=7793118
+scope=1073737727
+redirect_uri=https://oauth.vk.ru/blank.html
 response_type=token
-scope=messages
-state=wdtt
 v=5.199
 ```
-
-## Авторизация
-
-PWDTT не начинает вход напрямую с OAuth URL. Как и qWDTT, сначала создаётся обычная VK-сессия, затем проверяется `remixsid`, и только после этого запрашивается legacy access token.
 
 Последовательность:
 
 ```text
-https://m.vk.ru/login
+Вход в VK в отдельном Edge-профиле
         ↓
-VK ID login
+VK-сессия / remixsid
         ↓
-remixsid
+OAuth VK Calls (7793118)
         ↓
-HTTP-first OAuth chain (до 12 переходов)
+access_token
         ↓
-https://oauth.vk.com/blank.html#access_token=...
+POST https://api.vk.ru/method/calls.start
+Authorization: Bearer <token>
+v=5.199
         ↓
-calls.start
+response.join_link
+        ↓
+VK call hash
 ```
 
-Пользователь вводит пароль только на странице VK. PWDTT не рисует собственную форму логина и не получает пароль VK.
+PWDTT сначала пробует получить токен backend HTTP-цепочкой с cookies уже авторизованного Edge-профиля. Автоматические redirects отключены: приложение вручную обрабатывает `Location`, `location.href` и `grant_access` до получения `access_token`.
 
-qWDTT содержит обход ошибки VK ID `Unknown method passed`. В Windows-реализацию перенесена та же стратегия повторов:
+Если HTTP-цепочка не возвращает токен, используется тот же изолированный Edge-профиль и браузерный OAuth fallback на `oauth.vk.ru`.
 
-1. `https://m.vk.ru/login`;
-2. после ошибки очистить отдельную VK-сессию и открыть `https://m.vk.ru/`;
-3. после повторной ошибки очистить сессию и открыть `https://vk.ru/login` с desktop User-Agent `Chrome/131`.
+Пароль VK вводится только на странице VK. PWDTT не имеет собственной формы пароля.
 
-На первых двух попытках используется Android WebView-подобный User-Agent, чтобы поведение было ближе к qWDTT. Текст страницы проверяется только для обнаружения `Unknown method`; содержимое формы, пароль, cookies и токены не логируются.
+## Windows Edge-профиль
 
-Успешный вход определяется по наличию cookie `remixsid`, как в qWDTT. Пока `remixsid` не появился и VK ID login-flow не завершён, PWDTT не запускает OAuth получения токена.
-
-После появления VK-сессии PWDTT повторяет HTTP-first путь `VkCallHashGenerator.obtainAccessTokenViaHttp` из qWDTT:
-
-- собирает VK cookies из отдельного Edge-профиля через локальный CDP;
-- отправляет `GET https://oauth.vk.com/authorize?...` с тем же Cookie/User-Agent;
-- запрещает автоматические redirects и вручную проходит до 12 шагов;
-- обрабатывает `Location`, `location.href=...` и `https://login.vk.com/?act=grant_access...`;
-- извлекает `access_token` из redirect URL только внутри Go backend.
-
-Это сделано после реальной Windows-проверки, где прямой переход браузера на OAuth после QR-входа приводил к `oauth.vk.ru` с `HTTP ERROR 405`.
-
-Если HTTP-first цепочка не дала токен, сохраняется браузерный fallback, как в qWDTT. Если и он приходит на `HTTP 405`, PWDTT завершает операцию явной ошибкой вместо бесконечного ожидания.
-
-## Windows-хост авторизации
-
-Первые версии использовали дополнительный `go-webview2` control внутри PWDTT, а затем в отдельном helper-процессе. На реальной Windows-проверке этот control аварийно завершался (`exit status 2`) ещё до устойчивого запуска VK login.
-
-Чтобы убрать нестабильный raw COM/WebView2 control из VK-пути, helper теперь запускает установленный Microsoft Edge как отдельное app-окно с изолированным профилем `%LOCALAPPDATA%\PWDTT\vk-edge`.
-
-Управление выполняется только локально через Chrome DevTools Protocol на `127.0.0.1` и случайном свободном порту. PWDTT использует CDP для следующих операций:
-
-- получить текущий URL и обнаружить `Unknown method`;
-- проверить наличие `remixsid`, включая HttpOnly cookies;
-- безопасно получить VK cookies для backend HTTP-first OAuth;
-- при необходимости выполнить браузерный OAuth fallback и перехватить redirect с access token.
-
-Microsoft Edge запускается с отдельным `--user-data-dir`, поэтому эта сессия не использует основной профиль браузера пользователя. При logout каталог отдельного VK-профиля удаляется.
-
-VK-авторизация всё равно остаётся в дочернем процессе PWDTT:
+Для VK используется отдельный профиль:
 
 ```text
-PWDTT.exe
-  -> PWDTT.exe --pwdtt-vk-auth-helper login
-  -> Microsoft Edge --app=<VK login> --user-data-dir=<PWDTT vk-edge>
-  -> локальный CDP 127.0.0.1:<случайный порт>
-  -> HTTP-first legacy OAuth
-  -> внутренний IPC
-  -> основной PWDTT
+%LOCALAPPDATA%\PWDTT\vk-edge
 ```
 
-Если helper или Edge завершается, основной PWDTT остаётся запущенным и получает обычную ошибку.
+Он не совпадает с обычным пользовательским профилем Microsoft Edge.
 
-`github.com/wailsapp/go-webview2 v1.0.23` остаётся закреплённым для основного Wails WebView2. В `v1.0.22` был исправленный upstream баг `PutShouldDetectMonitorScaleChanges`, поэтому откат на `v1.0.22` не используется.
-
-## Создание звонков
-
-После получения токена backend вызывает тот же метод, что qWDTT:
+Управление helper-окном выполняется через локальный Chrome DevTools Protocol:
 
 ```text
-GET https://api.vk.ru/method/calls.start?access_token=<token>&v=5.199
+127.0.0.1:<случайный порт>
 ```
 
-Из `response.join_link` извлекается хеш после `/call/join/`. Между последовательными запросами используется пауза 2 секунды.
+Порт слушает только loopback-интерфейс.
 
-## Хранение и logout
+Microsoft Edge должен быть установлен в Windows.
 
-Полученный access token сериализуется только в Go backend, шифруется Windows DPAPI для текущего пользователя и хранится как `vk_session.bin` в пользовательском config-каталоге PWDTT.
+## Состояние входа и токен
 
-`VKLogout` удаляет DPAPI-сессию и отдельный VK-профиль Edge. Токен, cookies и OAuth URL с токеном не логируются и не отправляются во frontend.
+Обычная VK-сессия и API token разделены.
 
-## Ограничение
+После успешного входа PWDTT показывает:
 
-Flow зависит от legacy OAuth-поведения VK, которое использует qWDTT. Если VK изменит или отключит этот сценарий для `client_id=6287487`, потребуется обновить реализацию вслед за qWDTT.
+```text
+VK: Авторизован
+```
 
-Для автоматической Windows-авторизации требуется установленный Microsoft Edge. Он входит в стандартную поставку современных Windows, но при его ручном удалении PWDTT покажет явную ошибку `Microsoft Edge не найден`.
+Сам API token получается лениво при первом нажатии `Создать 1 хеш` или `Заполнить свободные`.
+
+Локальное состояние авторизации и token сохраняются через Windows DPAPI:
+
+```text
+%APPDATA%\PWDTT\vk_session.bin
+```
+
+Token:
+
+- не передаётся в React;
+- не хранится в ProfileData;
+- не передаётся через command line;
+- не выводится в логи;
+- хранится только в DPAPI-защищённом файле.
+
+При ошибке VK API, означающей недействительный token, сохранённый token сбрасывается и получается заново при следующей генерации.
+
+## Logout
+
+`Выйти из VK` удаляет:
+
+- DPAPI-состояние PWDTT;
+- отдельный Edge-профиль VK с cookies.
+
+После logout следующая генерация требует нового входа.
+
+## Генерация
+
+`Создать 1 хеш` создаёт один звонок VK и помещает результат в первое свободное поле.
+
+`Заполнить свободные`:
+
+- считает свободные поля;
+- создаёт только недостающие звонки;
+- не перезаписывает заполненные значения;
+- не добавляет дубликаты;
+- сохраняет уже полученные хеши при ошибке следующего запроса;
+- выдерживает паузу между последовательными `calls.start`.
+
+Поддерживаются ссылки:
+
+```text
+https://vk.com/call/join/<hash>
+https://vk.ru/call/join/<hash>
+https://m.vk.com/call/join/<hash>
+https://m.vk.ru/call/join/<hash>
+```
+
+а также raw hash.
+
+## Проверка на Windows
+
+Issue #3 был принят на реальной Windows x64:
+
+- production Wails build успешно собирается;
+- VK login проходит;
+- состояние `Авторизован` сохраняется;
+- `Заполнить свободные` создало реальные VK-хеши;
+- существующие хеши не были перезаписаны;
+- профиль сохранился;
+- туннель с созданными хешами поднялся;
+- WireGuard-конфигурация применилась;
+- ядро сообщило готовность;
+- одновременно работало 9 активных соединений;
+- через туннель прошёл реальный трафик.
+
+## Совместимость
+
+Ручной ввод хешей остаётся полностью доступным без входа в VK.
+
+Автоматическая генерация является дополнительной Windows-функцией и не требуется для Linux/macOS.
