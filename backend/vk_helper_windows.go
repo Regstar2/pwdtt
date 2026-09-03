@@ -66,7 +66,7 @@ func runVKAuthHelperProcess(action string) (response vkAuthHelperResponse) {
 	case "token":
 		ctx, cancel := context.WithTimeout(context.Background(), vkOAuthTimeout)
 		defer cancel()
-		token, err := obtainLegacyVKTokenAdaptiveV2(ctx)
+		token, err := obtainVKTokenWithFallback(ctx)
 		if err != nil {
 			response.Error = helperFriendlyVKError(err, ctx)
 			return response
