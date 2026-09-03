@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -166,4 +168,33 @@ func (s *vkEdgeSession) obtainLegacyVKAccessTokenQWDTTHTTP(ctx context.Context) 
 	}
 
 	return vkLegacyToken{}, trace, nil
+}
+
+func newQWDTTLegacyOAuthHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func newQWDTTLegacyOAuthRequest(ctx context.Context, targetURL, cookieHeader, userAgent string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Cookie", cookieHeader)
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	return req, nil
+}
+
+func readLegacyOAuthBody(resp *http.Response) (string, error) {
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
 }
