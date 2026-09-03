@@ -2,7 +2,9 @@ package backend
 
 import (
 	"errors"
+	"html"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,9 +18,20 @@ const (
 	vkLegacyDesktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
+var (
+	vkLegacyLocationHrefRE = regexp.MustCompile(`(?i)location\.href\s*=\s*["']([^"']+)["']`)
+	vkLegacyGrantURLRE     = regexp.MustCompile(`(?i)(https://login\.vk\.com/\?act=grant_access[^"'\\s<]+)`)
+)
+
 type vkLegacyToken struct {
 	AccessToken string
 	ExpiresIn   time.Duration
+}
+
+type vkLegacyAuthorizeHop struct {
+	Token   vkLegacyToken
+	NextURL string
+	Err     error
 }
 
 func legacyVKLoginStartURL(attempt int) string {
@@ -70,7 +83,6 @@ func parseLegacyVKTokenURL(raw string) (vkLegacyToken, bool, error) {
 					values.Add(key, item)
 				}
 		}
-		}
 	}
 
 	if oauthError := strings.TrimSpace(values.Get("error")); oauthError != "" {
@@ -98,4 +110,51 @@ func parseLegacyVKTokenURL(raw string) (vkLegacyToken, bool, error) {
 	}
 
 	return vkLegacyToken{AccessToken: accessToken, ExpiresIn: expiresIn}, true, nil
+}
+
+func parseLegacyVKAuthorizeHop(currentURL string, statusCode int, location, body string) vkLegacyAuthorizeHop {
+	location = strings.TrimSpace(html.UnescapeString(location))
+	if location != "" {
+		resolved := resolveLegacyVKRedirect(currentURL, location)
+		if token, terminal, err := parseLegacyVKTokenURL(resolved); terminal {
+			return vkLegacyAuthorizeHop{Token: token, Err: err}
+		}
+		return vkLegacyAuthorizeHop{NextURL: resolved}
+	}
+
+	if statusCode < 200 || statusCode >= 300 {
+		return vkLegacyAuthorizeHop{}
+	}
+
+	if match := vkLegacyLocationHrefRE.FindStringSubmatch(body); len(match) > 1 {
+		candidate := resolveLegacyVKRedirect(currentURL, html.UnescapeString(match[1]))
+		if token, terminal, err := parseLegacyVKTokenURL(candidate); terminal {
+			return vkLegacyAuthorizeHop{Token: token, Err: err}
+		}
+	}
+
+	if match := vkLegacyGrantURLRE.FindStringSubmatch(body); len(match) > 1 {
+		return vkLegacyAuthorizeHop{NextURL: html.UnescapeString(match[1])}
+	}
+
+	return vkLegacyAuthorizeHop{}
+}
+
+func resolveLegacyVKRedirect(currentURL, next string) string {
+	next = strings.TrimSpace(next)
+	if next == "" {
+		return ""
+	}
+	parsedNext, err := url.Parse(next)
+	if err != nil {
+		return next
+	}
+	if parsedNext.IsAbs() {
+		return parsedNext.String()
+	}
+	base, err := url.Parse(strings.TrimSpace(currentURL))
+	if err != nil {
+		return next
+	}
+	return base.ResolveReference(parsedNext).String()
 }
