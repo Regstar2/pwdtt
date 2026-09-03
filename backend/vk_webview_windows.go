@@ -25,6 +25,7 @@ const (
 	vkLegacyMobileUserAgent = "Mozilla/5.0 (Linux; Android 14; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.0.0 Mobile Safari/537.36"
 	vkEdgeStartupTimeout     = 15 * time.Second
 	vkEdgePollInterval       = 350 * time.Millisecond
+	vkOAuthHTTPMaxHops       = 12
 )
 
 type vkEdgeTarget struct {
@@ -34,13 +35,14 @@ type vkEdgeTarget struct {
 }
 
 type vkEdgeSession struct {
-	cmd    *exec.Cmd
-	waitCh chan error
-	conn   *websocket.Conn
-	port   int
-	nextID int64
-	closed atomic.Bool
-	http   *http.Client
+	cmd       *exec.Cmd
+	waitCh    chan error
+	conn      *websocket.Conn
+	port      int
+	nextID    int64
+	closed    atomic.Bool
+	http      *http.Client
+	userAgent string
 }
 
 type vkCDPResponse struct {
@@ -142,7 +144,21 @@ func runVKEdgeLoginFlow(ctx context.Context, session *vkEdgeSession) (vkLegacyTo
 				continue
 			}
 
+			// qWDTT first obtains the legacy access token over ordinary HTTP using
+			// the already authenticated VK cookies. This avoids navigating the
+			// visible browser directly to oauth.vk.com, which currently can end
+			// at an oauth.vk.ru HTTP 405 page after VK ID / QR login.
+			token, terminal, httpErr := session.obtainLegacyVKAccessTokenViaHTTP(ctx)
+			if terminal {
+				return token, false, httpErr
+			}
+
+			// Keep the same fallback as qWDTT: if the HTTP chain could not obtain
+			// a token, try the authorize URL in the authenticated browser session.
 			if err := session.navigate(ctx, buildLegacyVKAuthorizeURL()); err != nil {
+				if httpErr != nil {
+					return vkLegacyToken{}, false, fmt.Errorf("не удалось получить VK OAuth по HTTP (%v) и открыть браузерный fallback: %w", httpErr, err)
+				}
 				return vkLegacyToken{}, false, fmt.Errorf("не удалось открыть VK OAuth: %w", err)
 			}
 			phase = "token"
@@ -150,11 +166,65 @@ func runVKEdgeLoginFlow(ctx context.Context, session *vkEdgeSession) (vkLegacyTo
 		}
 
 		token, terminal, parseErr := parseLegacyVKTokenURL(state.URL)
-		if !terminal {
-			continue
+		if terminal {
+			return token, false, parseErr
 		}
-		return token, false, parseErr
+		if strings.Contains(strings.ToLower(state.Body), "http error 405") {
+			return vkLegacyToken{}, false, errors.New("VK OAuth browser fallback вернул HTTP 405")
+		}
 	}
+}
+
+func (s *vkEdgeSession) obtainLegacyVKAccessTokenViaHTTP(ctx context.Context) (vkLegacyToken, bool, error) {
+	cookieHeader, err := s.vkCookieHeader(ctx)
+	if err != nil {
+		return vkLegacyToken{}, false, err
+	}
+	if strings.TrimSpace(cookieHeader) == "" {
+		return vkLegacyToken{}, false, errors.New("VK-сессия не содержит cookies для OAuth")
+	}
+
+	client := &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	currentURL := buildLegacyVKAuthorizeURL()
+
+	for step := 0; step < vkOAuthHTTPMaxHops; step++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, currentURL, nil)
+		if err != nil {
+			return vkLegacyToken{}, false, err
+		}
+		req.Header.Set("Cookie", cookieHeader)
+		req.Header.Set("User-Agent", s.userAgent)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return vkLegacyToken{}, false, err
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		resp.Body.Close()
+		if readErr != nil {
+			return vkLegacyToken{}, false, readErr
+		}
+
+		hop := parseLegacyVKAuthorizeHop(currentURL, resp.StatusCode, resp.Header.Get("Location"), string(body))
+		if hop.Err != nil {
+			return hop.Token, true, hop.Err
+		}
+		if hop.Token.AccessToken != "" {
+			return hop.Token, true, nil
+		}
+		if strings.TrimSpace(hop.NextURL) == "" {
+			return vkLegacyToken{}, false, nil
+		}
+		currentURL = hop.NextURL
+	}
+
+	return vkLegacyToken{}, false, nil
 }
 
 func startVKEdgeSession(ctx context.Context, startURL, userAgent string) (*vkEdgeSession, error) {
@@ -192,9 +262,10 @@ func startVKEdgeSession(ctx context.Context, startURL, userAgent string) (*vkEdg
 	}
 
 	session := &vkEdgeSession{
-		cmd:    cmd,
-		waitCh: make(chan error, 1),
-		port:   port,
+		cmd:       cmd,
+		waitCh:    make(chan error, 1),
+		port:      port,
+		userAgent: userAgent,
 		http: &http.Client{
 			Timeout: 2 * time.Second,
 		},
@@ -255,7 +326,6 @@ func (s *vkEdgeSession) waitForPageTarget(ctx context.Context) (vkEdgeTarget, er
 						if target.Type == "page" && target.WebSocketDebuggerURL != "" {
 							return target, nil
 						}
-					}
 				}
 			}
 		}
@@ -322,25 +392,60 @@ func (s *vkEdgeSession) pageState(ctx context.Context) (vkCDPPageState, error) {
 	return state, nil
 }
 
-func (s *vkEdgeSession) hasVKSessionCookie(ctx context.Context) (bool, error) {
+func (s *vkEdgeSession) getAllCookies(ctx context.Context) ([]vkCDPCookie, error) {
 	result, err := s.call(ctx, "Network.getAllCookies", map[string]any{})
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	var cookies vkCDPCookiesResult
 	if err := json.Unmarshal(result, &cookies); err != nil {
+		return nil, err
+	}
+	return cookies.Cookies, nil
+}
+
+func (s *vkEdgeSession) hasVKSessionCookie(ctx context.Context) (bool, error) {
+	cookies, err := s.getAllCookies(ctx)
+	if err != nil {
 		return false, err
 	}
-	for _, cookie := range cookies.Cookies {
+	for _, cookie := range cookies {
 		if !strings.EqualFold(cookie.Name, "remixsid") || len(strings.TrimSpace(cookie.Value)) < 8 {
 			continue
 		}
-		domain := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(cookie.Domain), "."))
-		if domain == "vk.ru" || strings.HasSuffix(domain, ".vk.ru") || domain == "vk.com" || strings.HasSuffix(domain, ".vk.com") {
+		if isVKCookieDomain(cookie.Domain) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func (s *vkEdgeSession) vkCookieHeader(ctx context.Context) (string, error) {
+	cookies, err := s.getAllCookies(ctx)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, 0, len(cookies))
+	seen := make(map[string]struct{}, len(cookies))
+	for _, cookie := range cookies {
+		name := strings.TrimSpace(cookie.Name)
+		value := strings.TrimSpace(cookie.Value)
+		if name == "" || value == "" || !isVKCookieDomain(cookie.Domain) {
+			continue
+		}
+		pair := name + "=" + value
+		if _, exists := seen[pair]; exists {
+			continue
+		}
+		seen[pair] = struct{}{}
+		parts = append(parts, pair)
+	}
+	return strings.Join(parts, "; "), nil
+}
+
+func isVKCookieDomain(raw string) bool {
+	domain := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(raw), "."))
+	return domain == "vk.ru" || strings.HasSuffix(domain, ".vk.ru") || domain == "vk.com" || strings.HasSuffix(domain, ".vk.com")
 }
 
 func (s *vkEdgeSession) navigate(ctx context.Context, targetURL string) error {
