@@ -10,14 +10,8 @@ import (
 	"time"
 )
 
-const (
-	vkLegacyClientID         = "6287487"
-	vkLegacyRedirectURI      = "https://oauth.vk.com/blank.html"
-	vkLegacyAuthorizeURL     = "https://oauth.vk.com/authorize"
-	vkLegacyOAuthState       = "wdtt"
-	vkLegacyDesktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-		"(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
+const vkLegacyDesktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+	"(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 var (
 	vkLegacyLocationHrefRE = regexp.MustCompile(`(?i)location\.href\s*=\s*["']([^"']+)["']`)
@@ -64,19 +58,6 @@ func isVKLoginRateLimitedText(raw string) bool {
 		strings.Contains(value, "try again later")
 }
 
-func buildLegacyVKAuthorizeURL() string {
-	query := url.Values{
-		"client_id":     {vkLegacyClientID},
-		"display":       {"mobile"},
-		"redirect_uri":  {vkLegacyRedirectURI},
-		"response_type": {"token"},
-		"scope":         {"messages"},
-		"state":         {vkLegacyOAuthState},
-		"v":             {vkAPIVersion},
-	}
-	return vkLegacyAuthorizeURL + "?" + query.Encode()
-}
-
 func parseLegacyVKTokenURL(raw string) (vkLegacyToken, bool, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -110,10 +91,6 @@ func parseLegacyVKTokenURL(raw string) (vkLegacyToken, bool, error) {
 	accessToken := strings.TrimSpace(values.Get("access_token"))
 	if accessToken == "" {
 		return vkLegacyToken{}, false, nil
-	}
-
-	if state := strings.TrimSpace(values.Get("state")); state != "" && state != vkLegacyOAuthState {
-		return vkLegacyToken{}, true, errors.New("VK OAuth вернул ответ с неверным state")
 	}
 
 	var expiresIn time.Duration
