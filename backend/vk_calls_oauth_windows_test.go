@@ -55,10 +55,7 @@ func TestVKCallsOAuthBrowserAuthorizeMatchesAutoAPIFlow(t *testing.T) {
 	}
 }
 
-func TestVKCallsOAuthUsesCallsAppNotLegacyApp(t *testing.T) {
-	if vkCallsOAuthClientID == vkLegacyClientID {
-		t.Fatal("VK Calls OAuth must not use legacy vk.com app id")
-	}
+func TestVKCallsOAuthUsesCallsApp(t *testing.T) {
 	if vkCallsOAuthClientID != "7793118" {
 		t.Fatalf("VK Calls app id = %q", vkCallsOAuthClientID)
 	}
