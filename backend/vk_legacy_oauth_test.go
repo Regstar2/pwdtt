@@ -113,3 +113,70 @@ func TestParseLegacyVKTokenURLError(t *testing.T) {
 		t.Fatalf("terminal=%v err=%v", terminal, err)
 	}
 }
+
+func TestParseLegacyVKAuthorizeHopFollowsLocation(t *testing.T) {
+	hop := parseLegacyVKAuthorizeHop(
+		"https://oauth.vk.com/authorize?client_id=6287487",
+		302,
+		"https://login.vk.com/?act=grant_access&client_id=6287487&amp;foo=bar",
+		"",
+	)
+	if hop.Err != nil {
+		t.Fatalf("unexpected error: %v", hop.Err)
+	}
+	if hop.NextURL != "https://login.vk.com/?act=grant_access&client_id=6287487&foo=bar" {
+		t.Fatalf("next URL = %q", hop.NextURL)
+	}
+}
+
+func TestParseLegacyVKAuthorizeHopExtractsTokenFromLocation(t *testing.T) {
+	hop := parseLegacyVKAuthorizeHop(
+		"https://login.vk.com/?act=grant_access",
+		302,
+		"https://oauth.vk.com/blank.html#access_token=secret-token&expires_in=3600&state=wdtt",
+		"",
+	)
+	if hop.Err != nil {
+		t.Fatalf("unexpected error: %v", hop.Err)
+	}
+	if hop.Token.AccessToken != "secret-token" || hop.Token.ExpiresIn != time.Hour {
+		t.Fatalf("unexpected token: %#v", hop.Token)
+	}
+}
+
+func TestParseLegacyVKAuthorizeHopExtractsTokenFromLocationHref(t *testing.T) {
+	hop := parseLegacyVKAuthorizeHop(
+		"https://oauth.vk.com/authorize",
+		200,
+		"",
+		`<script>location.href='https://oauth.vk.com/blank.html#access_token=secret-token&state=wdtt'</script>`,
+	)
+	if hop.Err != nil {
+		t.Fatalf("unexpected error: %v", hop.Err)
+	}
+	if hop.Token.AccessToken != "secret-token" {
+		t.Fatalf("token = %q", hop.Token.AccessToken)
+	}
+}
+
+func TestParseLegacyVKAuthorizeHopFindsGrantAccess(t *testing.T) {
+	hop := parseLegacyVKAuthorizeHop(
+		"https://oauth.vk.com/authorize",
+		200,
+		"",
+		`<a href="https://login.vk.com/?act=grant_access&amp;client_id=6287487&amp;hash=abc">continue</a>`,
+	)
+	if hop.Err != nil {
+		t.Fatalf("unexpected error: %v", hop.Err)
+	}
+	if hop.NextURL != "https://login.vk.com/?act=grant_access&client_id=6287487&hash=abc" {
+		t.Fatalf("next URL = %q", hop.NextURL)
+	}
+}
+
+func TestParseLegacyVKAuthorizeHopStopsOnHTTP405(t *testing.T) {
+	hop := parseLegacyVKAuthorizeHop("https://oauth.vk.com/authorize", 405, "", "Method Not Allowed")
+	if hop.Err != nil || hop.Token.AccessToken != "" || hop.NextURL != "" {
+		t.Fatalf("unexpected hop: %#v", hop)
+	}
+}
