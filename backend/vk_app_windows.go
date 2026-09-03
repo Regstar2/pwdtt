@@ -43,7 +43,7 @@ func (a *App) VKLogin() error {
 	loginCtx, cancel := context.WithTimeout(ctx, vkOAuthTimeout)
 	defer cancel()
 
-	token, err := obtainLegacyVKTokenInWebView(loginCtx)
+	token, err := runLegacyVKAuthHelper(loginCtx, "login")
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(loginCtx.Err(), context.DeadlineExceeded) {
 			return errors.New("время ожидания авторизации VK истекло")
@@ -82,7 +82,7 @@ func (a *App) VKLogout() error {
 
 	clearCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := clearLegacyVKWebViewCookies(clearCtx); err != nil {
+	if _, err := runLegacyVKAuthHelper(clearCtx, "clear"); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(clearCtx.Err(), context.DeadlineExceeded) {
 			return errors.New("локальный токен удалён, но не удалось очистить cookies VK")
 		}
