@@ -50,8 +50,8 @@ func RunVKAuthHelperIfRequested() bool {
 
 func runVKAuthHelperProcess(action string) (response vkAuthHelperResponse) {
 	defer func() {
-		if recover() != nil {
-			response = vkAuthHelperResponse{Error: "внутренняя ошибка окна авторизации VK"}
+		if recovered := recover(); recovered != nil {
+			response = vkAuthHelperResponse{Error: fmt.Sprintf("внутренняя ошибка окна авторизации VK: %v", recovered)}
 		}
 	}()
 
