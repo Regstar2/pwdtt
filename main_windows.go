@@ -23,6 +23,10 @@ var appIcon []byte
 var wintunDLL []byte
 
 func main() {
+	if backend.RunVKAuthHelperIfRequested() {
+		return
+	}
+
 	backend.InitWintun(wintunDLL)
 	app := backend.NewApp()
 

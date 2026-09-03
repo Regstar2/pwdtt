@@ -31,6 +31,26 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
+      - name: Test backend
+        run: go test ./backend
+
+      - name: Verify WebView2 override
+        run: test "$(go list -m -f '{{.Version}}' github.com/wailsapp/go-webview2)" = "v1.0.23"
+
+      - name: Verify Edge CDP dependency
+        run: test "$(go list -m -f '{{.Version}}' github.com/gorilla/websocket)" = "v1.5.3"
+
+      - name: Compile Windows backend tests
+        run: GOOS=windows GOARCH=amd64 go test -c ./backend -o /tmp/pwdtt-backend-windows.test.exe
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test VK hash frontend
+        working-directory: frontend
+        run: npm test -- src/__tests__/vkHash.test.ts
+
       - name: Build Linux
         run: wails build -platform linux/amd64 -tags webkit2_41 -o pwdtt-linux-amd64
 

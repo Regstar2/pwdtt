@@ -2,24 +2,30 @@ package backend
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "1.5.1"
+const Version = "1.6.0"
 
 // App — главный объект приложения.
 // Wails привязывает его методы к frontend через Bind().
 type App struct {
-	ctx    context.Context
-	bridge *Bridge
-	store  *Store
+	ctx      context.Context
+	bridge   *Bridge
+	store    *Store
+	vkClient *vkAPIClient
+	vkMu     sync.Mutex
+	vkCancel context.CancelFunc
 }
 
 // NewApp создаёт App. Вызывается из main() до wails.Run().
 func NewApp() *App {
 	return &App{
-		store: NewStore(),
+		store:    NewStore(),
+		vkClient: newVKAPIClient(),
 	}
 }
 
@@ -127,9 +133,37 @@ func (a *App) CheckUpdate() *UpdateInfo {
 	return info
 }
 
+func (a *App) CancelVKOperation() {
+	a.vkMu.Lock()
+	defer a.vkMu.Unlock()
+	if a.vkCancel != nil {
+		a.vkCancel()
+	}
+}
+
 // ═══════════════════════════════════════════════════
 // INTERNAL
 // ═══════════════════════════════════════════════════
+
+func (a *App) beginVKOperation() (context.Context, func(), error) {
+	a.vkMu.Lock()
+	defer a.vkMu.Unlock()
+	if a.vkCancel != nil {
+		return nil, nil, errors.New("операция VK уже выполняется")
+	}
+	parent := a.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	a.vkCancel = cancel
+	return ctx, func() {
+		cancel()
+		a.vkMu.Lock()
+		a.vkCancel = nil
+		a.vkMu.Unlock()
+	}, nil
+}
 
 func (a *App) onBridgeEvent(name string, args ...any) {
 	wails.EventsEmit(a.ctx, name, args...)
