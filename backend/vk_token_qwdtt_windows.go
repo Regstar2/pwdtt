@@ -166,6 +166,12 @@ func (s *vkEdgeSession) obtainLegacyVKAccessTokenQWDTTHTTP(ctx context.Context) 
 		location := resp.Header.Get("Location")
 		trace = fmt.Sprintf("шаг %d/%d: HTTP %d, host=%s, redirect=%t", step+1, vkOAuthHTTPMaxHopsRU, resp.StatusCode, host, strings.TrimSpace(location) != "")
 
+		// The older qWDTT .com chain worked with one static Cookie header. VK's
+		// current .ru migration can issue Set-Cookie while bouncing through
+		// login.vk.ru/oauth.vk.ru; carry those values into the next hop so the
+		// legacy flow can progress instead of looping on stale state.
+		cookieHeader = mergeLegacyOAuthCookieHeader(cookieHeader, resp.Cookies())
+
 		hop := parseLegacyVKAuthorizeHop(currentURL, resp.StatusCode, location, body)
 		if hop.Err != nil {
 			return hop.Token, trace, hop.Err
@@ -180,6 +186,52 @@ func (s *vkEdgeSession) obtainLegacyVKAccessTokenQWDTTHTTP(ctx context.Context) 
 	}
 
 	return vkLegacyToken{}, trace, nil
+}
+
+func mergeLegacyOAuthCookieHeader(current string, setCookies []*http.Cookie) string {
+	if len(setCookies) == 0 {
+		return current
+	}
+
+	replacements := make(map[string]string, len(setCookies))
+	order := make([]string, 0, len(setCookies))
+	for _, cookie := range setCookies {
+		if cookie == nil {
+			continue
+		}
+		name := strings.TrimSpace(cookie.Name)
+		value := strings.TrimSpace(cookie.Value)
+		if name == "" || value == "" {
+			continue
+		}
+		if _, exists := replacements[name]; !exists {
+			order = append(order, name)
+		}
+		replacements[name] = value
+	}
+	if len(replacements) == 0 {
+		return current
+	}
+
+	parts := make([]string, 0, len(order)+8)
+	for _, name := range order {
+		parts = append(parts, name+"="+replacements[name])
+	}
+	for _, raw := range strings.Split(current, ";") {
+		pair := strings.TrimSpace(raw)
+		if pair == "" {
+			continue
+		}
+		name := pair
+		if idx := strings.IndexByte(pair, '='); idx >= 0 {
+			name = strings.TrimSpace(pair[:idx])
+		}
+		if _, replaced := replacements[name]; replaced {
+			continue
+		}
+		parts = append(parts, pair)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func newQWDTTLegacyOAuthHTTPClient() *http.Client {
