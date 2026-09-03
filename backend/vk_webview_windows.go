@@ -326,6 +326,7 @@ func (s *vkEdgeSession) waitForPageTarget(ctx context.Context) (vkEdgeTarget, er
 						if target.Type == "page" && target.WebSocketDebuggerURL != "" {
 							return target, nil
 						}
+					}
 				}
 			}
 		}
