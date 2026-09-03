@@ -149,3 +149,37 @@ func resolveLegacyVKRedirect(currentURL, next string) string {
 	}
 	return base.ResolveReference(parsedNext).String()
 }
+
+
+func parseModernRUAccessTokenURL(raw string) (vkLegacyToken, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return vkLegacyToken{}, false
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return vkLegacyToken{}, false
+	}
+
+	// Current VK can return a service access_token alongside authorize_url.
+	// Prefer the nested authorize_url because its fragment contains the user token.
+	authorizeURL := strings.TrimSpace(parsed.Query().Get("authorize_url"))
+	if authorizeURL != "" {
+		for i := 0; i < 2; i++ {
+			decoded, decodeErr := url.QueryUnescape(authorizeURL)
+			if decodeErr != nil || decoded == authorizeURL {
+				break
+			}
+			authorizeURL = decoded
+		}
+		if token, terminal, parseErr := parseLegacyVKTokenURL(authorizeURL); terminal && parseErr == nil && token.AccessToken != "" {
+			return token, true
+		}
+	}
+
+	if token, terminal, parseErr := parseLegacyVKTokenURL(raw); terminal && parseErr == nil && token.AccessToken != "" {
+		return token, true
+	}
+	return vkLegacyToken{}, false
+}
