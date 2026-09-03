@@ -51,6 +51,18 @@ func isLegacyVKIDLoginFlow(raw string) bool {
 		(strings.Contains(value, "authorize") || strings.Contains(value, "login") || strings.Contains(value, "auth"))
 }
 
+func isVKLoginRateLimitedText(raw string) bool {
+	value := strings.ToLower(strings.Join(strings.Fields(raw), " "))
+	if value == "" {
+		return false
+	}
+	return strings.Contains(value, "слишком много попыток") ||
+		strings.Contains(value, "попробуйте позже") ||
+		strings.Contains(value, "too many attempts") ||
+		strings.Contains(value, "too many tries") ||
+		strings.Contains(value, "try again later")
+}
+
 func buildLegacyVKAuthorizeURL() string {
 	query := url.Values{
 		"client_id":     {vkLegacyClientID},
