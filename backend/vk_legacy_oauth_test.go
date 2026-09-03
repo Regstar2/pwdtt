@@ -43,6 +43,27 @@ func TestIsLegacyVKIDLoginFlow(t *testing.T) {
 	}
 }
 
+func TestIsVKLoginRateLimitedText(t *testing.T) {
+	for _, raw := range []string{
+		"Ошибка\nСлишком много попыток. Попробуйте позже. [9]",
+		"Too many attempts. Try again later.",
+		"Too many tries, please try again later",
+	} {
+		if !isVKLoginRateLimitedText(raw) {
+			t.Fatalf("expected rate limit for %q", raw)
+		}
+	}
+	for _, raw := range []string{
+		"Unknown method passed [3]",
+		"Введите телефон или почту",
+		"Попробуйте другой способ входа",
+	} {
+		if isVKLoginRateLimitedText(raw) {
+			t.Fatalf("did not expect rate limit for %q", raw)
+		}
+	}
+}
+
 func TestBuildLegacyVKAuthorizeURLMatchesQWDTTFlow(t *testing.T) {
 	parsed, err := url.Parse(buildLegacyVKAuthorizeURL())
 	if err != nil {
