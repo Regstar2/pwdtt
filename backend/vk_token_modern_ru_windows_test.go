@@ -19,7 +19,7 @@ func TestBuildModernRUAuthorizeURL(t *testing.T) {
 	if query.Get("client_id") != "6287487" {
 		t.Fatalf("client_id = %q", query.Get("client_id"))
 	}
-	if query.Get("scope") != "messages" {
+	if query.Get("scope") != vkMessagesScopeMask {
 		t.Fatalf("scope = %q", query.Get("scope"))
 	}
 	if query.Get("response_type") != "token" {
