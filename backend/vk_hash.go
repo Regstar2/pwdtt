@@ -92,14 +92,13 @@ func (c *vkAPIClient) startCall(ctx context.Context, accessToken string) (string
 		return "", errors.New("VK не авторизован")
 	}
 
-	query := url.Values{
-		"access_token": {accessToken},
-		"v":            {vkAPIVersion},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.callsURL+"?"+query.Encode(), nil)
+	form := url.Values{"v": {vkAPIVersion}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.callsURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("не удалось подготовить запрос VK: %w", err)
 	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
