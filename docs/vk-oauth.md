@@ -49,23 +49,23 @@ qWDTT содержит обход ошибки VK ID `Unknown method passed`. В
 
 Для WebView2 используется отдельный профиль `%LOCALAPPDATA%\PWDTT\vk-webview2`, поэтому cookies VK сохраняются между запусками.
 
-## Изоляция WebView2
+## Изоляция WebView2 helper
 
-Окно VK запускается не внутри основного Wails-процесса, а в отдельном helper-процессе того же `PWDTT.exe`.
-
-Это необходимо потому, что используемый Wails fork `go-webview2` завершает процесс через `os.Exit(1)` при внутренней ошибке WebView2. Если запускать второе WebView2-окно непосредственно внутри PWDTT, такая ошибка завершает всё приложение и не может быть обработана обычным Go `error`.
-
-Основной процесс запускает:
+VK WebView2 запускается не внутри основного Wails-процесса, а в отдельном дочернем процессе того же EXE:
 
 ```text
-PWDTT.exe --pwdtt-vk-auth-helper login
+PWDTT.exe
+  -> PWDTT.exe --pwdtt-vk-auth-helper login
+  -> WebView2 / VK login / OAuth
+  -> внутренний IPC через stdout
+  -> основной PWDTT
 ```
 
-Helper создаёт WebView2 и возвращает результат родительскому процессу через захваченный stdout. Access token не передаётся через аргументы командной строки и не выводится пользователю. При отмене операции дочерний процесс завершается через `CommandContext`.
+Это необходимо потому, что `go-webview2` при некоторых внутренних ошибках завершает текущий процесс. При падении helper основной PWDTT остаётся запущенным и показывает ошибку.
 
-Logout аналогично запускает helper в режиме `clear`, чтобы очистка WebView2 cookies также не могла аварийно завершить основной PWDTT.
+Используется `github.com/wailsapp/go-webview2 v1.0.23`. В `v1.0.22` метод `PutShouldDetectMonitorScaleChanges` передавал в COM указатель на Go `bool` вместо значения Windows `BOOL`; `v1.0.23` исправляет этот вызов. Этот метод выполняется при создании WebView2 controller и мог приводить к аварийному завершению helper на Windows.
 
-Если helper/WebView2 завершится аварийно, основной PWDTT остаётся запущенным и получает безопасный текст ошибки вместо завершения всего приложения.
+Если helper всё же завершается аварийно, PWDTT добавляет в сообщение безопасный сокращённый фрагмент stderr. Строки, похожие на access token, Authorization header или Cookie header, отбрасываются.
 
 ## Создание звонков
 
@@ -81,7 +81,7 @@ GET https://api.vk.ru/method/calls.start?access_token=<token>&v=5.199
 
 Полученный access token сериализуется только в Go backend, шифруется Windows DPAPI для текущего пользователя и хранится как `vk_session.bin` в пользовательском config-каталоге PWDTT.
 
-`VKLogout` удаляет DPAPI-сессию и через изолированный helper очищает cookies отдельного VK WebView2-профиля. Токен, cookies и OAuth URL с токеном не логируются и не отправляются во frontend.
+`VKLogout` удаляет DPAPI-сессию и очищает cookies отдельного VK WebView2-профиля. Токен, cookies и OAuth URL с токеном не логируются и не отправляются во frontend.
 
 ## Ограничение
 
