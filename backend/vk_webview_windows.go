@@ -122,6 +122,12 @@ func runLegacyVKWebView(ctx context.Context, clearCookies bool, resultCh chan<- 
 	chromium.DataPath = vkWebViewDataPath()
 	chromium.AdditionalBrowserArgs = []string{"--lang=ru-RU"}
 	chromium.SetErrorCallback(func(webViewErr error) {
+		message := strings.ReplaceAll(webViewErr.Error(), "\r", " ")
+		message = strings.ReplaceAll(message, "\n", " ")
+		if len(message) > 500 {
+			message = message[:500]
+		}
+		_, _ = fmt.Fprintln(os.Stderr, vkAuthHelperErrorPrefix+message)
 		finish(vkWebViewResult{err: fmt.Errorf("WebView2 VK: %w", webViewErr)})
 	})
 
