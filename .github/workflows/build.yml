@@ -31,6 +31,9 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
+      - name: Verify WebView2 version
+        run: go list -m github.com/wailsapp/go-webview2 | grep 'v1.0.23$'
+
       - name: Test VK hash backend
         run: go test ./backend -run 'Test(BuildLegacyVKAuthorizeURLMatchesQWDTTFlow|ParseLegacyVKTokenURL|NormalizeVKCallHash|VKAPIClientStartCall|GenerateVKHashes)'
 
