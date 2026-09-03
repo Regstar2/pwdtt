@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/wailsapp/go-webview2 v1.0.22
+	github.com/wailsapp/go-webview2 v1.0.23
 	github.com/wailsapp/wails/v2 v2.13.0
 	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446
 	wg-turn-client v0.0.0-00010101000000-000000000000
