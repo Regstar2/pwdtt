@@ -15,7 +15,8 @@ const (
 	vkLegacyRedirectURI      = "https://oauth.vk.com/blank.html"
 	vkLegacyAuthorizeURL     = "https://oauth.vk.com/authorize"
 	vkLegacyOAuthState       = "wdtt"
-	vkLegacyDesktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	vkLegacyDesktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+		"(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 var (
@@ -144,7 +145,6 @@ func parseLegacyVKAuthorizeHop(currentURL string, statusCode int, location, body
 		if token, terminal, err := parseLegacyVKTokenURL(candidate); terminal {
 			return vkLegacyAuthorizeHop{Token: token, Err: err}
 		}
-		return vkLegacyAuthorizeHop{NextURL: candidate}
 	}
 
 	if match := vkLegacyGrantURLRE.FindStringSubmatch(body); len(match) > 1 {
