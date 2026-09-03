@@ -15,7 +15,7 @@ v=5.199
 
 ## Авторизация
 
-PWDTT не начинает вход напрямую с OAuth URL. Как и qWDTT, сначала создаётся обычная VK-сессия в отдельном WebView2-профиле.
+PWDTT не начинает вход напрямую с OAuth URL. Как и qWDTT, сначала создаётся обычная VK-сессия, затем проверяется `remixsid`, и только после этого запрашивается legacy access token.
 
 Последовательность:
 
@@ -24,7 +24,7 @@ https://m.vk.ru/login
         ↓
 VK ID login
         ↓
-remixsid в WebView2 cookies
+remixsid
         ↓
 https://oauth.vk.com/authorize
         ↓
@@ -38,34 +38,44 @@ calls.start
 qWDTT содержит обход ошибки VK ID `Unknown method passed`. В Windows-реализацию перенесена та же стратегия повторов:
 
 1. `https://m.vk.ru/login`;
-2. после ошибки очистить cookies и открыть `https://m.vk.ru/`;
-3. после повторной ошибки очистить cookies и открыть `https://vk.ru/login` с desktop User-Agent `Chrome/131`.
+2. после ошибки очистить отдельную VK-сессию и открыть `https://m.vk.ru/`;
+3. после повторной ошибки очистить сессию и открыть `https://vk.ru/login` с desktop User-Agent `Chrome/131`.
 
-На первых двух попытках используется Android WebView-подобный User-Agent, чтобы поведение было ближе к qWDTT. Текст страницы отслеживается только для обнаружения `Unknown method`; содержимое формы, пароль, cookies и токены не логируются.
+На первых двух попытках используется Android WebView-подобный User-Agent, чтобы поведение было ближе к qWDTT. Текст страницы проверяется только для обнаружения `Unknown method`; содержимое формы, пароль, cookies и токены не логируются.
 
-Успешный вход определяется не по адресу страницы, а по наличию cookie `remixsid`, как в qWDTT. Пока `remixsid` не появился и VK ID login-flow не завершён, PWDTT не запускает OAuth получения токена.
+Успешный вход определяется по наличию cookie `remixsid`, как в qWDTT. Пока `remixsid` не появился и VK ID login-flow не завершён, PWDTT не запускает OAuth получения токена.
 
-После появления VK-сессии открывается legacy OAuth URL. VK перенаправляет WebView2 на `https://oauth.vk.com/blank.html#access_token=...`. URL обрабатывается только Go backend: access token не передаётся в React и не выводится в лог.
+После появления VK-сессии открывается legacy OAuth URL. VK перенаправляет окно на `https://oauth.vk.com/blank.html#access_token=...`. URL обрабатывается только Go backend: access token не передаётся в React и не выводится в лог.
 
-Для WebView2 используется отдельный профиль `%LOCALAPPDATA%\PWDTT\vk-webview2`, поэтому cookies VK сохраняются между запусками.
+## Windows-хост авторизации
 
-## Изоляция WebView2 helper
+Первые версии использовали дополнительный `go-webview2` control внутри PWDTT, а затем в отдельном helper-процессе. На реальной Windows-проверке этот control аварийно завершался (`exit status 2`) ещё до устойчивого запуска VK login.
 
-VK WebView2 запускается не внутри основного Wails-процесса, а в отдельном дочернем процессе того же EXE:
+Чтобы убрать нестабильный raw COM/WebView2 control из VK-пути, helper теперь запускает установленный Microsoft Edge как отдельное app-окно с изолированным профилем `%LOCALAPPDATA%\PWDTT\vk-edge`.
+
+Управление выполняется только локально через Chrome DevTools Protocol на `127.0.0.1` и случайном свободном порту. PWDTT использует CDP для трёх операций:
+
+- получить текущий URL и обнаружить `Unknown method`;
+- проверить наличие `remixsid`, включая HttpOnly cookies;
+- после появления VK-сессии перейти на legacy OAuth URL и перехватить redirect с access token.
+
+Microsoft Edge запускается с отдельным `--user-data-dir`, поэтому эта сессия не использует основной профиль браузера пользователя. При logout каталог отдельного VK-профиля удаляется.
+
+VK-авторизация всё равно остаётся в дочернем процессе PWDTT:
 
 ```text
 PWDTT.exe
   -> PWDTT.exe --pwdtt-vk-auth-helper login
-  -> WebView2 / VK login / OAuth
-  -> внутренний IPC через stdout
+  -> Microsoft Edge --app=<VK login> --user-data-dir=<PWDTT vk-edge>
+  -> локальный CDP 127.0.0.1:<случайный порт>
+  -> legacy OAuth result
+  -> внутренний IPC
   -> основной PWDTT
 ```
 
-Это необходимо потому, что `go-webview2` при некоторых внутренних ошибках завершает текущий процесс. При падении helper основной PWDTT остаётся запущенным и показывает ошибку.
+Если helper или Edge завершается, основной PWDTT остаётся запущенным и получает обычную ошибку.
 
-Используется `github.com/wailsapp/go-webview2 v1.0.23`. В `v1.0.22` метод `PutShouldDetectMonitorScaleChanges` передавал в COM указатель на Go `bool` вместо значения Windows `BOOL`; `v1.0.23` исправляет этот вызов. Этот метод выполняется при создании WebView2 controller и мог приводить к аварийному завершению helper на Windows.
-
-Если helper всё же завершается аварийно, PWDTT добавляет в сообщение безопасный сокращённый фрагмент stderr. Строки, похожие на access token, Authorization header или Cookie header, отбрасываются.
+`github.com/wailsapp/go-webview2 v1.0.23` остаётся закреплённым для основного Wails WebView2. В `v1.0.22` был исправленный upstream баг `PutShouldDetectMonitorScaleChanges`, поэтому откат на `v1.0.22` не используется.
 
 ## Создание звонков
 
@@ -81,8 +91,10 @@ GET https://api.vk.ru/method/calls.start?access_token=<token>&v=5.199
 
 Полученный access token сериализуется только в Go backend, шифруется Windows DPAPI для текущего пользователя и хранится как `vk_session.bin` в пользовательском config-каталоге PWDTT.
 
-`VKLogout` удаляет DPAPI-сессию и очищает cookies отдельного VK WebView2-профиля. Токен, cookies и OAuth URL с токеном не логируются и не отправляются во frontend.
+`VKLogout` удаляет DPAPI-сессию и отдельный VK-профиль Edge. Токен, cookies и OAuth URL с токеном не логируются и не отправляются во frontend.
 
 ## Ограничение
 
 Flow зависит от legacy OAuth-поведения VK, которое использует qWDTT. Если VK изменит или отключит этот сценарий для `client_id=6287487`, потребуется обновить реализацию вслед за qWDTT.
+
+Для автоматической Windows-авторизации требуется установленный Microsoft Edge. Он входит в стандартную поставку современных Windows, но при его ручном удалении PWDTT покажет явную ошибку `Microsoft Edge не найден`.
