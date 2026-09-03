@@ -26,7 +26,7 @@ VK ID login
         ↓
 remixsid
         ↓
-https://oauth.vk.com/authorize
+HTTP-first OAuth chain (до 12 переходов)
         ↓
 https://oauth.vk.com/blank.html#access_token=...
         ↓
@@ -45,7 +45,17 @@ qWDTT содержит обход ошибки VK ID `Unknown method passed`. В
 
 Успешный вход определяется по наличию cookie `remixsid`, как в qWDTT. Пока `remixsid` не появился и VK ID login-flow не завершён, PWDTT не запускает OAuth получения токена.
 
-После появления VK-сессии открывается legacy OAuth URL. VK перенаправляет окно на `https://oauth.vk.com/blank.html#access_token=...`. URL обрабатывается только Go backend: access token не передаётся в React и не выводится в лог.
+После появления VK-сессии PWDTT повторяет HTTP-first путь `VkCallHashGenerator.obtainAccessTokenViaHttp` из qWDTT:
+
+- собирает VK cookies из отдельного Edge-профиля через локальный CDP;
+- отправляет `GET https://oauth.vk.com/authorize?...` с тем же Cookie/User-Agent;
+- запрещает автоматические redirects и вручную проходит до 12 шагов;
+- обрабатывает `Location`, `location.href=...` и `https://login.vk.com/?act=grant_access...`;
+- извлекает `access_token` из redirect URL только внутри Go backend.
+
+Это сделано после реальной Windows-проверки, где прямой переход браузера на OAuth после QR-входа приводил к `oauth.vk.ru` с `HTTP ERROR 405`.
+
+Если HTTP-first цепочка не дала токен, сохраняется браузерный fallback, как в qWDTT. Если и он приходит на `HTTP 405`, PWDTT завершает операцию явной ошибкой вместо бесконечного ожидания.
 
 ## Windows-хост авторизации
 
@@ -53,11 +63,12 @@ qWDTT содержит обход ошибки VK ID `Unknown method passed`. В
 
 Чтобы убрать нестабильный raw COM/WebView2 control из VK-пути, helper теперь запускает установленный Microsoft Edge как отдельное app-окно с изолированным профилем `%LOCALAPPDATA%\PWDTT\vk-edge`.
 
-Управление выполняется только локально через Chrome DevTools Protocol на `127.0.0.1` и случайном свободном порту. PWDTT использует CDP для трёх операций:
+Управление выполняется только локально через Chrome DevTools Protocol на `127.0.0.1` и случайном свободном порту. PWDTT использует CDP для следующих операций:
 
 - получить текущий URL и обнаружить `Unknown method`;
 - проверить наличие `remixsid`, включая HttpOnly cookies;
-- после появления VK-сессии перейти на legacy OAuth URL и перехватить redirect с access token.
+- безопасно получить VK cookies для backend HTTP-first OAuth;
+- при необходимости выполнить браузерный OAuth fallback и перехватить redirect с access token.
 
 Microsoft Edge запускается с отдельным `--user-data-dir`, поэтому эта сессия не использует основной профиль браузера пользователя. При logout каталог отдельного VK-профиля удаляется.
 
@@ -68,7 +79,7 @@ PWDTT.exe
   -> PWDTT.exe --pwdtt-vk-auth-helper login
   -> Microsoft Edge --app=<VK login> --user-data-dir=<PWDTT vk-edge>
   -> локальный CDP 127.0.0.1:<случайный порт>
-  -> legacy OAuth result
+  -> HTTP-first legacy OAuth
   -> внутренний IPC
   -> основной PWDTT
 ```
