@@ -32,7 +32,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Test VK hash backend
-        run: go test ./backend -run 'Test(BuildLegacyVKAuthorizeURLMatchesQWDTTFlow|ParseLegacyVKTokenURL|NormalizeVKCallHash|VKAPIClientStartCall|GenerateVKHashes)'
+        run: go test ./backend -run 'Test(LegacyVKLoginStartURLs|IsLegacyVKIDLoginFlow|BuildLegacyVKAuthorizeURLMatchesQWDTTFlow|ParseLegacyVKTokenURL|NormalizeVKCallHash|VKAPIClientStartCall|GenerateVKHashes)'
 
       - name: Install frontend dependencies
         working-directory: frontend
