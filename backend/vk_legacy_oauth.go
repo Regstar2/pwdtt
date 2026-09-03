@@ -20,7 +20,7 @@ const (
 
 var (
 	vkLegacyLocationHrefRE = regexp.MustCompile(`(?i)location\.href\s*=\s*["']([^"']+)["']`)
-	vkLegacyGrantURLRE     = regexp.MustCompile(`(?i)(https://login\.vk\.com/\?act=grant_access[^"'\s<]+)`)
+	vkLegacyGrantURLRE     = regexp.MustCompile(`(?i)(https://login\.vk\.(?:com|ru)/\?act=grant_access[^"'\s<]+)`)
 )
 
 type vkLegacyToken struct {
@@ -144,6 +144,7 @@ func parseLegacyVKAuthorizeHop(currentURL string, statusCode int, location, body
 		if token, terminal, err := parseLegacyVKTokenURL(candidate); terminal {
 			return vkLegacyAuthorizeHop{Token: token, Err: err}
 		}
+		return vkLegacyAuthorizeHop{NextURL: candidate}
 	}
 
 	if match := vkLegacyGrantURLRE.FindStringSubmatch(body); len(match) > 1 {
