@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"net/http"
 	"reflect"
 	"testing"
 )
@@ -15,7 +16,9 @@ func TestQWDTTLegacyVKCookieURLs(t *testing.T) {
 		"https://m.vk.com",
 		"https://m.vk.ru",
 		"https://login.vk.com",
+		"https://login.vk.ru",
 		"https://oauth.vk.com",
+		"https://oauth.vk.ru",
 		"https://id.vk.com",
 		"https://id.vk.ru",
 	}
@@ -45,5 +48,19 @@ func TestQWDTTLegacyOAuthRequestShape(t *testing.T) {
 	}
 	if got := req.Header.Get("Accept"); got != "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" {
 		t.Fatalf("Accept = %q", got)
+	}
+}
+
+func TestMergeLegacyOAuthCookieHeaderCarriesFreshRedirectCookies(t *testing.T) {
+	got := mergeLegacyOAuthCookieHeader(
+		"remixsid=old; remixlang=0; keep=value",
+		[]*http.Cookie{
+			{Name: "remixsid", Value: "fresh"},
+			{Name: "oauth_state", Value: "next"},
+		},
+	)
+	want := "remixsid=fresh; oauth_state=next; remixlang=0; keep=value"
+	if got != want {
+		t.Fatalf("cookie header = %q, want %q", got, want)
 	}
 }
