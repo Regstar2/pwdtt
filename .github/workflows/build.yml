@@ -31,13 +31,13 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-      - name: Test VK hash backend
-        run: go test ./backend -run 'Test(IsVKLoginRateLimitedText|BuildLegacyVKAuthorizeURLMatchesQWDTTFlow|ParseLegacyVKTokenURL|ParseLegacyVKAuthorizeHop|NormalizeVKCallHash|VKAPIClientStartCall|GenerateVKHashes)'
+      - name: Test backend
+        run: go test ./backend
 
       - name: Verify WebView2 override
         run: test "$(go list -m -f '{{.Version}}' github.com/wailsapp/go-webview2)" = "v1.0.23"
 
-      - name: Verify Edge control dependency
+      - name: Verify Edge CDP dependency
         run: test "$(go list -m -f '{{.Version}}' github.com/gorilla/websocket)" = "v1.5.3"
 
       - name: Compile Windows backend tests
