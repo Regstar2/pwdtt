@@ -82,6 +82,7 @@ func parseLegacyVKTokenURL(raw string) (vkLegacyToken, bool, error) {
 				for _, item := range items {
 					values.Add(key, item)
 				}
+			}
 		}
 	}
 
