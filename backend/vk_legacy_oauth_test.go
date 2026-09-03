@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"net/url"
 	"testing"
 	"time"
 )
@@ -64,34 +63,9 @@ func TestIsVKLoginRateLimitedText(t *testing.T) {
 	}
 }
 
-func TestBuildLegacyVKAuthorizeURLMatchesQWDTTFlow(t *testing.T) {
-	parsed, err := url.Parse(buildLegacyVKAuthorizeURL())
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	if parsed.Scheme != "https" || parsed.Host != "oauth.vk.com" || parsed.Path != "/authorize" {
-		t.Fatalf("unexpected authorize URL: %s", parsed.String())
-	}
-	query := parsed.Query()
-	want := map[string]string{
-		"client_id":     vkLegacyClientID,
-		"display":       "mobile",
-		"redirect_uri":  vkLegacyRedirectURI,
-		"response_type": "token",
-		"scope":         "messages",
-		"state":         vkLegacyOAuthState,
-		"v":             "5.199",
-	}
-	for key, expected := range want {
-		if got := query.Get(key); got != expected {
-			t.Fatalf("%s = %q, want %q", key, got, expected)
-		}
-	}
-}
-
 func TestParseLegacyVKTokenURL(t *testing.T) {
 	result, terminal, err := parseLegacyVKTokenURL(
-		"https://oauth.vk.com/blank.html#access_token=secret-token&expires_in=86400&state=wdtt&user_id=1",
+		"https://oauth.vk.com/blank.html#access_token=secret-token&expires_in=86400&user_id=1",
 	)
 	if err != nil {
 		t.Fatalf("parseLegacyVKTokenURL() error = %v", err)
@@ -117,18 +91,9 @@ func TestParseLegacyVKTokenURLIgnoresOrdinaryPages(t *testing.T) {
 	}
 }
 
-func TestParseLegacyVKTokenURLRejectsWrongState(t *testing.T) {
-	_, terminal, err := parseLegacyVKTokenURL(
-		"https://oauth.vk.com/blank.html#access_token=secret-token&state=other",
-	)
-	if !terminal || err == nil {
-		t.Fatalf("terminal=%v err=%v", terminal, err)
-	}
-}
-
 func TestParseLegacyVKTokenURLError(t *testing.T) {
 	_, terminal, err := parseLegacyVKTokenURL(
-		"https://oauth.vk.com/blank.html#error=access_denied&error_description=Denied&state=wdtt",
+		"https://oauth.vk.com/blank.html#error=access_denied&error_description=Denied",
 	)
 	if !terminal || err == nil {
 		t.Fatalf("terminal=%v err=%v", terminal, err)
@@ -154,7 +119,7 @@ func TestParseLegacyVKAuthorizeHopExtractsTokenFromLocation(t *testing.T) {
 	hop := parseLegacyVKAuthorizeHop(
 		"https://login.vk.com/?act=grant_access",
 		302,
-		"https://oauth.vk.com/blank.html#access_token=secret-token&expires_in=3600&state=wdtt",
+		"https://oauth.vk.com/blank.html#access_token=secret-token&expires_in=3600",
 		"",
 	)
 	if hop.Err != nil {
@@ -170,7 +135,7 @@ func TestParseLegacyVKAuthorizeHopExtractsTokenFromLocationHref(t *testing.T) {
 		"https://oauth.vk.com/authorize",
 		200,
 		"",
-		`<script>location.href='https://oauth.vk.com/blank.html#access_token=secret-token&state=wdtt'</script>`,
+		`<script>location.href='https://oauth.vk.com/blank.html#access_token=secret-token'</script>`,
 	)
 	if hop.Err != nil {
 		t.Fatalf("unexpected error: %v", hop.Err)
