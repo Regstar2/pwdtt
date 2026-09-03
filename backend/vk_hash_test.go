@@ -52,14 +52,14 @@ func TestNormalizeVKCallHashRejectsInvalid(t *testing.T) {
 
 func TestVKAPIClientStartCallSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Fatalf("method = %s, want POST", r.Method)
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s, want GET", r.Method)
 		}
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm: %v", err)
+		if r.URL.Query().Get("access_token") != "token" {
+			t.Fatal("access token was not sent in query")
 		}
-		if r.Form.Get("access_token") != "token" {
-			t.Fatal("access token was not sent in form body")
+		if r.URL.Query().Get("v") != "5.199" {
+			t.Fatalf("v = %q, want 5.199", r.URL.Query().Get("v"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"response":{"join_link":"https://vk.com/call/join/AbCdEfGh12345678"}}`))
