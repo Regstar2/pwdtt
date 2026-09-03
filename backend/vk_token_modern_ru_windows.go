@@ -184,7 +184,7 @@ func (s *vkEdgeSession) obtainLegacyVKTokenViaModernRU(ctx context.Context) (vkL
 func buildModernRUAuthorizeURL() string {
 	query := url.Values{
 		"client_id":     {vkLegacyClientID},
-		"scope":         {"messages"},
+		"scope":         {vkMessagesScopeMask},
 		"response_type": {"token"},
 	}
 	return vkModernRUAuthorizeURL + "?" + query.Encode()
