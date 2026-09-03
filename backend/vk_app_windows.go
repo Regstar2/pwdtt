@@ -17,7 +17,8 @@ import (
 const vkOAuthTimeout = 5 * time.Minute
 
 type vkSession struct {
-	AccessToken string    `json:"access_token"`
+	LoggedIn   bool      `json:"logged_in,omitempty"`
+	AccessToken string    `json:"access_token,omitempty"`
 	ExpiresAt   time.Time `json:"expires_at,omitempty"`
 }
 
@@ -27,7 +28,13 @@ func (a *App) IsVKAuthAvailable() bool {
 
 func (a *App) IsVKLoggedIn() bool {
 	session, err := loadVKSession()
-	if err != nil || session.AccessToken == "" {
+	if err != nil {
+		return false
+	}
+	if session.LoggedIn {
+		return true
+	}
+	if session.AccessToken == "" {
 		return false
 	}
 	return session.ExpiresAt.IsZero() || session.ExpiresAt.After(time.Now())
@@ -43,8 +50,7 @@ func (a *App) VKLogin() error {
 	loginCtx, cancel := context.WithTimeout(ctx, vkOAuthTimeout)
 	defer cancel()
 
-	token, err := runLegacyVKAuthHelper(loginCtx, "login")
-	if err != nil {
+	if _, err := runLegacyVKAuthHelper(loginCtx, "login"); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(loginCtx.Err(), context.DeadlineExceeded) {
 			return errors.New("время ожидания авторизации VK истекло")
 		}
@@ -53,16 +59,11 @@ func (a *App) VKLogin() error {
 		}
 		return err
 	}
-	if token.AccessToken == "" {
-		return errors.New("VK OAuth не вернул access token")
-	}
 
-	session := vkSession{AccessToken: token.AccessToken}
-	if token.ExpiresIn > 0 {
-		session.ExpiresAt = time.Now().Add(token.ExpiresIn)
-	}
+	session, _ := loadVKSession()
+	session.LoggedIn = true
 	if err := saveVKSession(session); err != nil {
-		return fmt.Errorf("не удалось сохранить авторизацию VK: %w", err)
+		return fmt.Errorf("не удалось сохранить состояние входа VK: %w", err)
 	}
 	a.onBridgeEvent("vk-auth-changed", true)
 	return nil
@@ -84,9 +85,9 @@ func (a *App) VKLogout() error {
 	defer cancel()
 	if _, err := runLegacyVKAuthHelper(clearCtx, "clear"); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(clearCtx.Err(), context.DeadlineExceeded) {
-			return errors.New("локальный токен удалён, но не удалось очистить cookies VK")
+			return errors.New("локальное состояние удалено, но не удалось очистить cookies VK")
 		}
-		return fmt.Errorf("локальный токен удалён, но cookies VK не очищены: %w", err)
+		return fmt.Errorf("локальное состояние удалено, но cookies VK не очищены: %w", err)
 	}
 	return nil
 }
@@ -98,7 +99,7 @@ func (a *App) GenerateVKHashes(count int, existing []string) ([]string, error) {
 	}
 	defer done()
 
-	accessToken, err := validVKAccessToken()
+	accessToken, err := a.ensureVKAccessToken(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +109,8 @@ func (a *App) GenerateVKHashes(count int, existing []string) ([]string, error) {
 	if err != nil {
 		var apiErr *vkAPIError
 		if errors.As(err, &apiErr) && apiErr.Code == 5 {
-			_ = deleteVKSession()
-			a.onBridgeEvent("vk-auth-changed", false)
-			return hashes, errors.New("авторизация VK истекла или была отозвана; войдите снова")
+			_ = clearSavedVKAccessToken()
+			return hashes, errors.New("VK API отклонил access token; повторите создание хеша, чтобы получить новый токен")
 		}
 		if errors.Is(err, context.Canceled) {
 			return hashes, errors.New("операция VK отменена")
@@ -120,16 +120,51 @@ func (a *App) GenerateVKHashes(count int, existing []string) ([]string, error) {
 	return hashes, nil
 }
 
-func validVKAccessToken() (string, error) {
+func (a *App) ensureVKAccessToken(ctx context.Context) (string, error) {
 	session, err := loadVKSession()
-	if err != nil || session.AccessToken == "" {
+	if err != nil || (!session.LoggedIn && session.AccessToken == "") {
 		return "", errors.New("сначала войдите в VK")
 	}
-	if !session.ExpiresAt.IsZero() && !session.ExpiresAt.After(time.Now().Add(30*time.Second)) {
-		_ = deleteVKSession()
-		return "", errors.New("авторизация VK истекла; войдите снова")
+	if session.AccessToken != "" && (session.ExpiresAt.IsZero() || session.ExpiresAt.After(time.Now().Add(30*time.Second))) {
+		return session.AccessToken, nil
+	}
+
+	tokenCtx, cancel := context.WithTimeout(ctx, vkOAuthTimeout)
+	defer cancel()
+	token, err := runLegacyVKAuthHelper(tokenCtx, "token")
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(tokenCtx.Err(), context.DeadlineExceeded) {
+			return "", errors.New("время ожидания токена VK истекло")
+		}
+		if errors.Is(err, context.Canceled) {
+			return "", errors.New("операция VK отменена")
+		}
+		return "", fmt.Errorf("не удалось получить токен VK: %w", err)
+	}
+	if token.AccessToken == "" {
+		return "", errors.New("VK OAuth не вернул access token")
+	}
+
+	session.LoggedIn = true
+	session.AccessToken = token.AccessToken
+	session.ExpiresAt = time.Time{}
+	if token.ExpiresIn > 0 {
+		session.ExpiresAt = time.Now().Add(token.ExpiresIn)
+	}
+	if err := saveVKSession(session); err != nil {
+		return "", fmt.Errorf("не удалось сохранить токен VK: %w", err)
 	}
 	return session.AccessToken, nil
+}
+
+func clearSavedVKAccessToken() error {
+	session, err := loadVKSession()
+	if err != nil {
+		return err
+	}
+	session.AccessToken = ""
+	session.ExpiresAt = time.Time{}
+	return saveVKSession(session)
 }
 
 func vkSessionFilePath() (string, error) {
