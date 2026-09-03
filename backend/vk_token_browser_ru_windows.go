@@ -216,16 +216,11 @@ func (s *vkEdgeSession) exchangeModernRUReturnAuthHash(ctx context.Context, retu
 		return vkLegacyToken{}, errors.New("VK connect_internal не подтвердил seamless OAuth")
 	}
 
-	tokenForm := url.Values{
-		"hash":             {returnAuthHash},
-		"auth_user_hash":   {connectData.Data.AuthUserHash},
-		"app_id":           {vkLegacyClientID},
-		"client_id":        {vkLegacyClientID},
-		"scope":            {"messages"},
-		"access_token":     {connectData.Data.AccessToken},
-		"is_seamless_auth": {"1"},
-		"v":                {vkModernRUAPIVersion},
-	}
+	tokenForm := buildModernRUGetOAuthTokenForm(
+		returnAuthHash,
+		connectData.Data.AuthUserHash,
+		connectData.Data.AccessToken,
+	)
 	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, vkModernRUGetOAuthTokenURL, strings.NewReader(tokenForm.Encode()))
 	if err != nil {
 		return vkLegacyToken{}, err
