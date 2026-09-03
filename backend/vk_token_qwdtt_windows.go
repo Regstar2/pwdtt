@@ -14,13 +14,17 @@ import (
 	"time"
 )
 
+const vkOAuthHTTPMaxHopsRU = 24
+
 var qwdttVKCookieURLs = []string{
 	"https://vk.com",
 	"https://vk.ru",
 	"https://m.vk.com",
 	"https://m.vk.ru",
 	"https://login.vk.com",
+	"https://login.vk.ru",
 	"https://oauth.vk.com",
+	"https://oauth.vk.ru",
 	"https://id.vk.com",
 	"https://id.vk.ru",
 }
@@ -92,6 +96,8 @@ func obtainLegacyVKTokenQWDTT(ctx context.Context) (vkLegacyToken, error) {
 // qwdttVKCookieHeader is the CDP equivalent of qWDTT's
 // CookieManager.getCookie() calls for its fixed VK URL list. Network.getCookies
 // returns only cookies applicable to those URLs, unlike Network.getAllCookies.
+// VK currently migrates parts of the OAuth chain from *.vk.com to *.vk.ru, so
+// the same URL-scoped collection is extended with login.vk.ru/oauth.vk.ru.
 func (s *vkEdgeSession) qwdttVKCookieHeader(ctx context.Context) (string, error) {
 	result, err := s.call(ctx, "Network.getCookies", map[string]any{"urls": qwdttVKCookieURLs})
 	if err != nil {
@@ -132,8 +138,14 @@ func (s *vkEdgeSession) obtainLegacyVKAccessTokenQWDTTHTTP(ctx context.Context) 
 	client := newQWDTTLegacyOAuthHTTPClient()
 	currentURL := buildLegacyVKAuthorizeURL()
 	trace := "не выполнено"
+	seenURLs := make(map[string]struct{}, vkOAuthHTTPMaxHopsRU)
 
-	for step := 0; step < vkOAuthHTTPMaxHops; step++ {
+	for step := 0; step < vkOAuthHTTPMaxHopsRU; step++ {
+		if _, exists := seenURLs[currentURL]; exists {
+			return vkLegacyToken{}, trace, errors.New("VK OAuth вошёл в цикл redirect")
+		}
+		seenURLs[currentURL] = struct{}{}
+
 		req, err := newQWDTTLegacyOAuthRequest(ctx, currentURL, cookieHeader, vkLegacyMobileUserAgent)
 		if err != nil {
 			return vkLegacyToken{}, trace, err
@@ -152,7 +164,7 @@ func (s *vkEdgeSession) obtainLegacyVKAccessTokenQWDTTHTTP(ctx context.Context) 
 			host = parsed.Hostname()
 		}
 		location := resp.Header.Get("Location")
-		trace = fmt.Sprintf("шаг %d/%d: HTTP %d, host=%s, redirect=%t", step+1, vkOAuthHTTPMaxHops, resp.StatusCode, host, strings.TrimSpace(location) != "")
+		trace = fmt.Sprintf("шаг %d/%d: HTTP %d, host=%s, redirect=%t", step+1, vkOAuthHTTPMaxHopsRU, resp.StatusCode, host, strings.TrimSpace(location) != "")
 
 		hop := parseLegacyVKAuthorizeHop(currentURL, resp.StatusCode, location, body)
 		if hop.Err != nil {
