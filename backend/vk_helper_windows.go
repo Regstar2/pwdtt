@@ -30,7 +30,7 @@ type vkAuthHelperResponse struct {
 }
 
 // RunVKAuthHelperIfRequested switches the current executable into the isolated
-// VK WebView2 helper mode. The main Wails process must call this before
+// VK browser helper mode. The main Wails process must call this before
 // initialising Wails itself.
 func RunVKAuthHelperIfRequested() bool {
 	if len(os.Args) < 3 || os.Args[1] != vkAuthHelperArg {
