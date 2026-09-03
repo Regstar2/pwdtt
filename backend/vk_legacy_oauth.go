@@ -20,7 +20,7 @@ const (
 
 var (
 	vkLegacyLocationHrefRE = regexp.MustCompile(`(?i)location\.href\s*=\s*["']([^"']+)["']`)
-	vkLegacyGrantURLRE     = regexp.MustCompile(`(?i)(https://login\.vk\.com/\?act=grant_access[^"'\\s<]+)`)
+	vkLegacyGrantURLRE     = regexp.MustCompile(`(?i)(https://login\.vk\.com/\?act=grant_access[^"'\s<]+)`)
 )
 
 type vkLegacyToken struct {
