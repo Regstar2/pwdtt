@@ -219,26 +219,30 @@ func parseModernRUAccessTokenURL(raw string) (vkLegacyToken, bool) {
 	if raw == "" {
 		return vkLegacyToken{}, false
 	}
-	if token, terminal, err := parseLegacyVKTokenURL(raw); terminal && err == nil && token.AccessToken != "" {
-		return token, true
-	}
 
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return vkLegacyToken{}, false
 	}
+
+	// Current VK can return a service access_token query parameter together
+	// with authorize_url. The real user token is inside authorize_url's
+	// fragment, so always prefer that nested URL when it is present.
 	authorizeURL := strings.TrimSpace(parsed.Query().Get("authorize_url"))
-	if authorizeURL == "" {
-		return vkLegacyToken{}, false
-	}
-	for i := 0; i < 2; i++ {
-		decoded, decodeErr := url.QueryUnescape(authorizeURL)
-		if decodeErr != nil || decoded == authorizeURL {
-			break
+	if authorizeURL != "" {
+		for i := 0; i < 2; i++ {
+			decoded, decodeErr := url.QueryUnescape(authorizeURL)
+			if decodeErr != nil || decoded == authorizeURL {
+				break
+			}
+			authorizeURL = decoded
 		}
-		authorizeURL = decoded
+		if token, terminal, parseErr := parseLegacyVKTokenURL(authorizeURL); terminal && parseErr == nil && token.AccessToken != "" {
+			return token, true
+		}
 	}
-	if token, terminal, err := parseLegacyVKTokenURL(authorizeURL); terminal && err == nil && token.AccessToken != "" {
+
+	if token, terminal, parseErr := parseLegacyVKTokenURL(raw); terminal && parseErr == nil && token.AccessToken != "" {
 		return token, true
 	}
 	return vkLegacyToken{}, false
