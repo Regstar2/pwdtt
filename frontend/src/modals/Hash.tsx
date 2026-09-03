@@ -214,8 +214,7 @@ export default function Hash({ hashes, onClose, onSave }: Props) {
               <div className="hash-unavailable">Проверка VK…</div>
             ) : !authAvailable ? (
               <div className="hash-unavailable">
-                Автогенерация VK-хешей недоступна: для Windows-сборки не настроен VK ID OAuth.
-                Ручной ввод продолжает работать.
+                Автогенерация VK-хешей доступна только в Windows. Ручной ввод продолжает работать.
               </div>
             ) : (
               <>
