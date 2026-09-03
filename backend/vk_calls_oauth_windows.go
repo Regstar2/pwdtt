@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -144,7 +145,7 @@ func scrapeVKCallsTokenHTTP(ctx context.Context, cookieHeader, userAgent string)
 		if err != nil {
 			return vkLegacyToken{}, err
 		}
-		body, readErr := readLegacyOAuthBody(resp)
+		body, readErr := readVKCallsOAuthBody(resp)
 		if readErr != nil {
 			return vkLegacyToken{}, readErr
 		}
@@ -234,22 +235,11 @@ func (s *vkEdgeSession) obtainVKCallsTokenViaBrowser(ctx context.Context) (vkLeg
 	}
 }
 
-func obtainVKTokenWithFallback(ctx context.Context) (vkLegacyToken, error) {
-	token, primaryErr := obtainVKCallsTokenPrimary(ctx)
-	if primaryErr == nil && token.AccessToken != "" {
-		return token, nil
+func readVKCallsOAuthBody(resp *http.Response) (string, error) {
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return "", err
 	}
-
-	legacyToken, legacyErr := obtainLegacyVKTokenAdaptiveV2(ctx)
-	if legacyErr == nil && legacyToken.AccessToken != "" {
-		return legacyToken, nil
-	}
-
-	if primaryErr == nil {
-		primaryErr = errors.New("VK Calls OAuth завершился без access token")
-	}
-	if legacyErr == nil {
-		legacyErr = errors.New("legacy qWDTT OAuth завершился без access token")
-	}
-	return vkLegacyToken{}, fmt.Errorf("VK Calls OAuth: %v; legacy qWDTT fallback: %v", primaryErr, legacyErr)
+	return string(body), nil
 }
