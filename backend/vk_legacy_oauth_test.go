@@ -166,3 +166,32 @@ func TestParseLegacyVKAuthorizeHopStopsOnHTTP405(t *testing.T) {
 		t.Fatalf("unexpected hop: %#v", hop)
 	}
 }
+
+
+func TestParseModernRUAccessTokenURLPrefersNestedAuthorizeURL(t *testing.T) {
+	nested := "https://oauth.vk.ru/blank.html#access_token=user-token&expires_in=3600"
+	raw := "https://id.vk.ru/auth?access_token=service-token&authorize_url=" + url.QueryEscape(nested)
+
+	token, ok := parseModernRUAccessTokenURL(raw)
+	if !ok {
+		t.Fatal("expected token")
+	}
+	if token.AccessToken != "user-token" {
+		t.Fatalf("token = %q, want user-token", token.AccessToken)
+	}
+	if token.ExpiresIn != time.Hour {
+		t.Fatalf("expires = %s, want 1h", token.ExpiresIn)
+	}
+}
+
+func TestParseModernRUAccessTokenURLFallsBackToDirectToken(t *testing.T) {
+	token, ok := parseModernRUAccessTokenURL(
+		"https://oauth.vk.ru/blank.html#access_token=direct-token&expires_in=60",
+	)
+	if !ok || token.AccessToken != "direct-token" {
+		t.Fatalf("token=%q ok=%v", token.AccessToken, ok)
+	}
+	if token.ExpiresIn != time.Minute {
+		t.Fatalf("expires = %s, want 1m", token.ExpiresIn)
+	}
+}
