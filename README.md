@@ -1,159 +1,200 @@
-<p align="center">
-  <img src="assets/icons/icon.png" width="96" />
-</p>
+<div align="center">
 
-<h1 align="center">PWDTT</h1>
+<img src="assets/icons/icon.png" width="128" alt="Логотип PWDTT">
 
-<p align="center">
-  Десктопный VPN-клиент, который туннелирует трафик через TURN-серверы VK,<br>
-  маскируя соединение под зашифрованный медиатрафик звонка.<br>
-  <sub>Форк <a href="https://github.com/amurcanov/proxy-turn-vk-android">proxy-turn-vk-android</a> — версия для ПК</sub>
-</p>
+# PWDTT
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
-  <img src="https://img.shields.io/badge/Wails-v2-red?style=for-the-badge&logo=wails&logoColor=white" alt="Wails">
-  <img src="https://img.shields.io/badge/Linux-amd64-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
-  <img src="https://img.shields.io/badge/Windows-amd64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows">
-  <img src="https://img.shields.io/badge/macOS-Universal-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
-</p>
+Десктопный клиент для туннелирования трафика через TURN/DTLS-инфраструктуру VK с локальным WireGuard-интерфейсом. Этот репозиторий — поддерживаемый форк [luminescq/PWDTT](https://github.com/luminescq/PWDTT) с исправлениями совместимости с актуальными qWDTT-серверами.
 
----
+[![Release](https://img.shields.io/github/v/release/Regstar2/PWDTT?display_name=tag&sort=semver&style=for-the-badge&logo=github&label=release)](../../releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/Regstar2/PWDTT/build.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](../../actions/workflows/build.yml)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0A7EA4?style=for-the-badge)](#требования)
+[![License](https://img.shields.io/github/license/Regstar2/PWDTT?style=for-the-badge&label=license)](LICENSE)
 
-## Как это работает
+[Быстрый старт](#быстрый-старт) ·
+[Документация](#документация) ·
+[Релизы](../../releases) ·
+[Обратная связь](../../issues)
 
-Приложение поднимает локальный WireGuard-интерфейс и передаёт его трафик через TURN/DTLS серверы VK, оборачивая пакеты в RTP с шифрованием ChaCha20-Poly1305. С точки зрения провайдера — это обычный зашифрованный VK-звонок.
-
-```
-Приложение → WireGuard → ChaCha20/RTP → VK TURN/DTLS → wdtt-server (VPS) → интернет
-```
+</div>
 
 ---
 
-## Запуск
+## О проекте
 
-### Linux
+PWDTT поднимает локальный WireGuard-интерфейс и передаёт его трафик через TURN/DTLS-серверы VK, оборачивая пакеты в RTP с шифрованием ChaCha20-Poly1305. Для выхода в интернет используется настроенный пользователем `wdtt-server` на VPS.
 
-**1. Установите зависимости:**
-
-```bash
-# Ubuntu/Debian
-sudo apt install wireguard-tools libwebkit2gtk-4.1-dev
-
-# Arch
-sudo pacman -S wireguard-tools webkit2gtk-4.1
+```text
+Приложение → WireGuard → ChaCha20-Poly1305/RTP → VK TURN/DTLS → wdtt-server → интернет
 ```
 
-**2. Настройте права для WireGuard:**
+Проект предназначен для пользователей, которым нужен desktop-клиент для существующей инфраструктуры WDTT/qWDTT на Windows, Linux или macOS.
 
-Приложению нужны права root для управления сетевым интерфейсом. Установите sudoers-правило:
+## Статус проекта
 
-```bash
-# Одной командой (скачает и запустит):
-sudo bash <(curl -s https://raw.githubusercontent.com/luminescq/PWDTT/main/assets/install-sudoers.sh)
-```
+Репозиторий развивается как отдельный поддерживаемый форк `luminescq/PWDTT`. Последний опубликованный релиз форка — [v1.5.2](../../releases/tag/v1.5.2).
 
-Или вручную через `visudo` — добавьте в `/etc/sudoers`:
-```
-your_user ALL=(ALL) NOPASSWD: /usr/bin/ip, /usr/bin/wg
-```
+### Что изменено в этом форке
 
-Скрипт автоматически определит текущего пользователя и создаст файл `/etc/sudoers.d/pwdtt`.
+В `v1.5.2` относительно базового upstream-состояния:
 
-**3. Запустите:**
+- добавлена команда `AUTH` для DTLS-воркеров, которые не запрашивают WireGuard-конфигурацию;
+- восстановлена совместимость с более новыми qWDTT-серверами, которые требуют авторизацию каждого worker-соединения;
+- исправлено отображение длинного списка сохранённых серверов: список прокручивается, а длинные названия не ломают разметку.
 
-```bash
-chmod +x pwdtt-linux-amd64
-./pwdtt-linux-amd64
-```
+Автоматическая генерация VK call hashes для Windows находится в разработке в [PR #4](../../pull/4) и не входит в `v1.5.2`.
 
-### Windows
+## Возможности
 
-Скачайте `pwdtt-windows-amd64.exe` из [Releases](https://github.com/luminescq/PWDTT/releases) и запустите. Драйвер WireGuard (wintun) встроен.
-
-### macOS
-
-Скачайте `PWDTT-macos.zip` из [Releases](https://github.com/luminescq/PWDTT/releases), распакуйте и запустите `PWDTT.app`. При первом запуске macOS запросит разрешение на создание сетевого интерфейса — введите пароль администратора.
-
-> Universal бинарник: работает на Intel и Apple Silicon (M1/M2/M3/M4).
-
----
+- локальный WireGuard-туннель;
+- транспорт через VK TURN/DTLS;
+- RTP-обёртка с ChaCha20-Poly1305;
+- профили серверов и импорт `wdtt://`-ссылок;
+- поддержка qWDTT-ссылок;
+- до четырёх VK call hashes в профиле;
+- сборка для Windows amd64, Linux amd64 и macOS Universal;
+- встроенный отчёт с диагностической информацией и логами текущей сессии.
 
 ## Быстрый старт
 
-1. **Добавьте сервер** — кнопка `+` → вставьте `wdtt://`-ссылку или введите вручную
-2. **VK-хеши** — Настройки → вставьте хеши из `vk.com/call/join/<hash>`
-3. **Подключение** — кнопка питания
+Для Windows x64 готовая сборка находится в релизе [v1.5.2](../../releases/tag/v1.5.2).
 
----
+1. Скачайте `pwdtt-windows-amd64.exe`.
+2. Запустите приложение.
+3. Добавьте сервер кнопкой `+`: вставьте `wdtt://`-ссылку или заполните параметры вручную.
+4. В настройках Hash добавьте до четырёх хешей из ссылок вида `https://vk.com/call/join/<hash>`.
+5. Выберите сервер и нажмите кнопку подключения.
 
-## Ссылки
+Для Linux и macOS в `v1.5.2` отдельные бинарные файлы форка не опубликованы; используйте сборку из исходников.
 
+## Требования
+
+### Windows
+
+- архитектура x86-64 для готового бинарного файла `v1.5.2`;
+- доступ к настроенному WDTT/qWDTT-серверу;
+- валидные VK call hashes.
+
+Драйвер Wintun используется приложением для WireGuard-интерфейса.
+
+### Linux
+
+Для сборки и запуска нужны WireGuard tools и WebKitGTK 4.1. На Debian/Ubuntu:
+
+```bash
+sudo apt install wireguard-tools libayatana-appindicator3-dev pkg-config gcc libwebkit2gtk-4.1-dev
 ```
+
+Управление сетевым интерфейсом требует повышенных прав.
+
+### macOS
+
+Исходники содержат macOS-путь на базе userspace WireGuard. Создание сетевого интерфейса и маршрутов требует административных прав.
+
+## Использование
+
+### Ссылки серверов
+
+Формат `wdtt://`:
+
+```text
 wdtt://<IP>:<DTLS_PORT>:<WG_PORT>:<PROXY_PORT>:<PASSWORD>[:<HASH1>,<HASH2>,...][#название]
 ```
 
-- Поля 1–5 обязательны
-- Хеши — опциональны, через запятую, до 4 штук
-- `#название` — опциональный псевдоним сервера
+Поля 1–5 обязательны. Хеши опциональны, передаются через запятую; поддерживается до четырёх значений. `#название` задаёт необязательный псевдоним профиля.
 
 Пример:
-```
+
+```text
 wdtt://1.2.3.4:56000:56001:0:mypassword:AbCdEfGh,XyZ12345#Мой сервер
 ```
 
-Вставить ссылку можно через кнопку `+` или просто **Ctrl+V** в любом месте окна.
+Ссылку можно вставить через кнопку `+` или `Ctrl+V` в окне приложения. Поддерживаются также qWDTT-ссылки.
 
-> Также принимаються ссылки qwdtt.
+### VK call hashes
 
----
+Текущий релиз использует ручной ввод. Можно вставить сам hash или полную ссылку `vk.com/call/join/<hash>`; приложение сохраняет нормализованное значение в профиле.
 
-## Сборка из исходников
+## Архитектура
 
-**Зависимости:** Go 1.26+, Node.js 22+, [Wails v2](https://wails.io)
+PWDTT состоит из Go backend и интерфейса Wails/React. Сетевой путь разделён на локальный WireGuard-интерфейс, worker-соединения через VK TURN/DTLS и удалённый `wdtt-server`, который принимает туннельный трафик и выпускает его в интернет.
+
+## Диагностика
+
+Если соединение работает некорректно:
+
+1. Откройте настройки приложения.
+2. Нажмите `Отчёт`.
+3. Создайте [Issue](../../issues/new) и приложите полученный отчёт вместе с описанием проблемы.
+
+Отчёт содержит сведения о системе, версии приложения и логи текущей сессии. Перед публикацией всё равно проверьте текст отчёта и удалите данные, которые не хотите размещать публично.
+
+## Сборка
+
+Зависимости для разработки:
+
+- Go 1.26+;
+- Node.js 22+;
+- Wails v2.
 
 ```bash
-# Linux
-sudo apt install libayatana-appindicator3-dev pkg-config gcc libwebkit2gtk-4.1-dev
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-git clone https://github.com/luminescq/PWDTT
+git clone https://github.com/Regstar2/PWDTT.git
 cd PWDTT
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+```
+
+Linux amd64:
+
+```bash
 wails build -platform linux/amd64 -tags webkit2_41 -o pwdtt-linux-amd64
-# → build/bin/pwdtt-linux-amd64
 ```
+
+Windows amd64:
 
 ```bash
-# Windows (кросс-компиляция с Linux)
-wails build -platform windows/amd64
-# → build/bin/pwdtt.exe
+wails build -platform windows/amd64 -o pwdtt-windows-amd64.exe
 ```
+
+macOS Universal необходимо собирать на macOS:
 
 ```bash
-# macOS (только на macOS)
-wails build -platform darwin/universal
-# → build/bin/pwdtt-macos
+wails build -platform darwin/universal -o pwdtt-macos
 ```
 
----
+GitHub Actions workflow `.github/workflows/build.yml` содержит отдельные сборки для Linux/Windows и macOS.
 
-## Отчёт об ошибках
+## Документация
 
-Если приложение работает некорректно, вы можете собрать отчёт прямо из интерфейса:
+- [Релизы форка](../../releases) — опубликованные версии, изменения и готовые артефакты.
+- [Issues форка](../../issues) — известные проблемы и текущие задачи.
+- [Upstream PWDTT](https://github.com/luminescq/PWDTT) — исходный desktop-проект.
+- [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) — исходный Android-проект, на базе которого появился PWDTT.
 
-1. Откройте **Настройки** (шестерёнка вверху)
-2. Нажмите **Отчёт** — информация о системе и логах сессии скопируется в буфер обмена
-3. Создайте [Issue](https://github.com/luminescq/PWDTT/issues/new) и вставьте отчёт
+## Дорожная карта
 
-Отчёт содержит: версию ОС, версию Go, версию приложения, имя хоста и.filtered логи текущей сессии.
+Ближайшая активная работа — завершить Windows-приёмку автоматической генерации VK call hashes в [PR #4](../../pull/4). До прохождения ручной проверки эта функция не считается частью готового релиза.
 
----
+## Обратная связь
+
+Для ошибок и предложений используйте [GitHub Issues](../../issues). Для проблем подключения приложите отчёт из приложения и укажите платформу, способ подключения и воспроизводимые шаги.
+
+## Происхождение и благодарности
+
+`Regstar2/PWDTT` является GitHub-форком [luminescq/PWDTT](https://github.com/luminescq/PWDTT). Upstream PWDTT создан как desktop-адаптация [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android).
+
+Общие исправления форка по возможности могут отправляться обратно в upstream отдельными pull request; дополнительные изменения и релизы этого репозитория ведутся независимо.
+
+## Ограничения
+
+- Для работы нужен собственный настроенный WDTT/qWDTT-сервер и рабочие VK call hashes.
+- Поведение зависит от внешней инфраструктуры VK и протокола qWDTT; их изменения могут потребовать обновления клиента.
+- Релиз `v1.5.2` публикует готовый бинарный файл форка только для Windows x64. Linux и macOS сейчас требуют сборки из исходников.
+- Автоматическое создание VK call hashes ещё не входит в опубликованный релиз; в `v1.5.2` используется ручной ввод.
+- Проект не является официальным продуктом VK.
 
 > [!IMPORTANT]
-> Приложение является техническим инструментом для защищённого туннелирования собственного трафика через ваш сервер. Автор не призывает использовать PWDTT для противоправных целей или нарушения правил сторонних сервисов.
-
----
+> PWDTT — технический инструмент для туннелирования собственного трафика через настроенный пользователем сервер. Пользователь самостоятельно отвечает за соблюдение применимого законодательства и правил используемых сервисов.
 
 ## Лицензия
 
-Этот проект распространяется под лицензией GNU General Public License v3.0.
+Проект распространяется по лицензии [GNU General Public License v3.0](LICENSE).
