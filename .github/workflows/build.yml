@@ -31,6 +31,17 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
+      - name: Test VK hash backend
+        run: go test ./backend -run 'Test(NormalizeVKCallHash|VKAPIClientStartCall|GenerateVKHashes)'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test VK hash frontend
+        working-directory: frontend
+        run: npm test -- src/__tests__/vkHash.test.ts
+
       - name: Build Linux
         run: wails build -platform linux/amd64 -tags webkit2_41 -o pwdtt-linux-amd64
 
