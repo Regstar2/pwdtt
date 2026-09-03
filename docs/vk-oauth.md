@@ -1,34 +1,42 @@
-# VK ID OAuth для генерации хешей
+# VK OAuth для генерации хешей в Windows
 
-Автогенерация VK-хешей в Windows использует системный браузер, Authorization Code + PKCE и локальный callback. Пароль VK не передаётся в PWDTT.
+Автогенерация VK-хешей повторяет рабочий flow qWDTT, адаптированный под Windows/Wails. Собственный VK ID `app_id` не требуется.
 
-## Требование к VK ID приложению
-
-Нужен отдельный VK ID `app_id`. В настройках приложения должен быть разрешён redirect URI:
+Используются те же публичные параметры, что и в qWDTT:
 
 ```text
-http://127.0.0.1:53682/vk-oauth/callback
+client_id=6287487
+redirect_uri=https://oauth.vk.com/blank.html
+response_type=token
+scope=messages
+state=wdtt
+v=5.199
 ```
 
-`app_id` не является секретом. Секрет приложения desktop-клиенту не требуется и не должен добавляться в репозиторий.
+## Авторизация
 
-Пока `app_id` не настроен, ручной ввод VK-хешей работает как раньше, а блок автогенерации показывает, что OAuth недоступен.
+PWDTT открывает отдельное окно WebView2 с `https://oauth.vk.com/authorize`. Пользователь входит на странице VK. PWDTT не рисует собственную форму логина и не получает пароль VK.
 
-## Локальная проверка
+После успешной авторизации VK перенаправляет WebView2 на `https://oauth.vk.com/blank.html#access_token=...`. URL обрабатывается только Go backend: access token не передаётся в React и не выводится в лог.
 
-Перед запуском Windows-сборки задайте `app_id`:
+Для WebView2 используется отдельный профиль `%LOCALAPPDATA%\PWDTT\vk-webview2`, поэтому cookies VK сохраняются между запусками. Это повторяет идею Android WebView-сессии qWDTT и позволяет VK переиспользовать уже выполненный вход.
 
-```powershell
-$env:PWDTT_VK_APP_ID = '<VK_ID_APP_ID>'
-.\build\bin\pwdtt-windows-amd64.exe
+## Создание звонков
+
+После получения токена backend вызывает тот же метод, что qWDTT:
+
+```text
+GET https://api.vk.ru/method/calls.start?access_token=<token>&v=5.199
 ```
 
-Если для VK ID приложения зарегистрирован другой loopback redirect, его можно временно задать через `PWDTT_VK_REDIRECT_URI`. Поддерживается только `http://127.0.0.1:<port>/...` или `http://localhost:<port>/...` с фиксированным портом.
+Из `response.join_link` извлекается хеш после `/call/join/`. Между последовательными запросами используется пауза 2 секунды.
 
-Для production-сборки `vkOAuthClientID` можно заполнить публичным `app_id` в Windows build configuration. Не добавляйте в код client secret, access token, refresh token или cookies.
+## Хранение и logout
 
-## Хранение сессии
+Полученный access token сериализуется только в Go backend, шифруется Windows DPAPI для текущего пользователя и хранится как `vk_session.bin` в пользовательском config-каталоге PWDTT.
 
-Access/refresh token остаются только в Go backend. Сессия сериализуется и шифруется Windows DPAPI для текущего пользователя, после чего хранится в пользовательском config-каталоге PWDTT как `vk_session.bin`.
+`VKLogout` удаляет DPAPI-сессию и очищает cookies отдельного VK WebView2-профиля. Токен, cookies и OAuth URL с токеном не логируются и не отправляются во frontend.
 
-Frontend получает только статус авторизации, прогресс и готовые хеши. Токены, OAuth-коды и cookies не отправляются в frontend и не логируются.
+## Ограничение
+
+Flow зависит от legacy OAuth-поведения VK, которое использует qWDTT. Если VK изменит или отключит этот сценарий для `client_id=6287487`, потребуется обновить реализацию вслед за qWDTT.
