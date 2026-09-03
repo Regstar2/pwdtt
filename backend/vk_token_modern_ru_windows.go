@@ -84,10 +84,7 @@ func (s *vkEdgeSession) obtainLegacyVKTokenViaModernRU(ctx context.Context) (vkL
 		return token, nil
 	}
 
-	returnAuthHash := extractModernRUReturnAuthHashFromURL(finalURL)
-	if returnAuthHash == "" {
-		returnAuthHash = extractModernRUReturnAuthHash(body)
-	}
+	returnAuthHash := extractModernRUReturnAuthFromWindowInitHTML(body)
 	if returnAuthHash == "" {
 		return vkLegacyToken{}, errors.New("VK .ru authorize не вернул return_auth hash")
 	}
