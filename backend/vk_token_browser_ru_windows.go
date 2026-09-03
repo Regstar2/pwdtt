@@ -90,11 +90,8 @@ func (s *vkEdgeSession) obtainModernRUAuthorizeViaBrowser(ctx context.Context) (
 			return token, nil
 		}
 
-		returnAuthHash := extractModernRUReturnAuthHashFlexible(state.Body)
-		if returnAuthHash == "" {
-			returnAuthHash = extractModernRUReturnAuthHashFromURL(state.URL)
-		}
-		if returnAuthHash != "" {
+		returnAuthHash, hashErr := s.modernRUReturnAuthFromWindowInit(waitCtx)
+		if hashErr == nil && returnAuthHash != "" {
 			return s.exchangeModernRUReturnAuthHash(waitCtx, returnAuthHash)
 		}
 
@@ -158,10 +155,7 @@ func (s *vkEdgeSession) fetchModernRUAuthorizeMaterialHTTP(ctx context.Context) 
 	if token, ok := parseModernRUAccessTokenURL(finalURL); ok {
 		return token, "", safeModernRUHTTPDiag(finalURL, status, true), nil
 	}
-	hash := extractModernRUReturnAuthHashFromURL(finalURL)
-	if hash == "" {
-		hash = extractModernRUReturnAuthHashFlexible(body)
-	}
+	hash := extractModernRUReturnAuthFromWindowInitHTML(body)
 	return vkLegacyToken{}, hash, safeModernRUHTTPDiag(finalURL, status, hash != ""), nil
 }
 
