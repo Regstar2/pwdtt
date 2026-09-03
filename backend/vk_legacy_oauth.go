@@ -9,15 +9,33 @@ import (
 )
 
 const (
-	vkLegacyClientID     = "6287487"
-	vkLegacyRedirectURI  = "https://oauth.vk.com/blank.html"
-	vkLegacyAuthorizeURL = "https://oauth.vk.com/authorize"
-	vkLegacyOAuthState   = "wdtt"
+	vkLegacyClientID         = "6287487"
+	vkLegacyRedirectURI      = "https://oauth.vk.com/blank.html"
+	vkLegacyAuthorizeURL     = "https://oauth.vk.com/authorize"
+	vkLegacyOAuthState       = "wdtt"
+	vkLegacyDesktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 type vkLegacyToken struct {
 	AccessToken string
 	ExpiresIn   time.Duration
+}
+
+func legacyVKLoginStartURL(attempt int) string {
+	switch attempt {
+	case 0:
+		return "https://m.vk.ru/login"
+	case 1:
+		return "https://m.vk.ru/"
+	default:
+		return "https://vk.ru/login"
+	}
+}
+
+func isLegacyVKIDLoginFlow(raw string) bool {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	return (strings.Contains(value, "id.vk.com") || strings.Contains(value, "id.vk.ru")) &&
+		(strings.Contains(value, "authorize") || strings.Contains(value, "login") || strings.Contains(value, "auth"))
 }
 
 func buildLegacyVKAuthorizeURL() string {
@@ -51,7 +69,7 @@ func parseLegacyVKTokenURL(raw string) (vkLegacyToken, bool, error) {
 				for _, item := range items {
 					values.Add(key, item)
 				}
-			}
+		}
 		}
 	}
 
