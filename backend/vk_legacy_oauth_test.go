@@ -6,6 +6,43 @@ import (
 	"time"
 )
 
+func TestLegacyVKLoginStartURLsMatchQWDTTFallbacks(t *testing.T) {
+	want := []string{
+		"https://m.vk.ru/login",
+		"https://m.vk.ru/",
+		"https://vk.ru/login",
+	}
+	for attempt, expected := range want {
+		if got := legacyVKLoginStartURL(attempt); got != expected {
+			t.Fatalf("attempt %d: %q, want %q", attempt, got, expected)
+		}
+	}
+	if got := legacyVKLoginStartURL(99); got != want[2] {
+		t.Fatalf("fallback attempt: %q, want %q", got, want[2])
+	}
+}
+
+func TestIsLegacyVKIDLoginFlow(t *testing.T) {
+	for _, raw := range []string{
+		"https://id.vk.ru/authorize?foo=bar",
+		"https://id.vk.com/auth?act=login",
+		"https://id.vk.ru/login",
+	} {
+		if !isLegacyVKIDLoginFlow(raw) {
+			t.Fatalf("expected login flow for %q", raw)
+		}
+	}
+	for _, raw := range []string{
+		"https://m.vk.ru/",
+		"https://vk.ru/feed",
+		"https://oauth.vk.com/blank.html#access_token=x",
+	} {
+		if isLegacyVKIDLoginFlow(raw) {
+			t.Fatalf("did not expect login flow for %q", raw)
+		}
+	}
+}
+
 func TestBuildLegacyVKAuthorizeURLMatchesQWDTTFlow(t *testing.T) {
 	parsed, err := url.Parse(buildLegacyVKAuthorizeURL())
 	if err != nil {
