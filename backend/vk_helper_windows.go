@@ -102,6 +102,9 @@ func runLegacyVKAuthHelper(ctx context.Context, action string) (vkLegacyToken, e
 		if detail := extractVKHelperError(stderr.String()); detail != "" {
 			return vkLegacyToken{}, errors.New(detail)
 		}
+		if detail := compactVKHelperStderr(stderr.String()); detail != "" {
+			return vkLegacyToken{}, fmt.Errorf("окно авторизации VK аварийно завершилось (%v): %s", runErr, detail)
+		}
 		return vkLegacyToken{}, fmt.Errorf("окно авторизации VK аварийно завершилось: %w", runErr)
 	}
 
@@ -165,6 +168,45 @@ func extractVKHelperError(output string) string {
 		return ""
 	}
 	return "окно авторизации VK аварийно завершилось: " + detail
+}
+
+func compactVKHelperStderr(output string) string {
+	var lines []string
+	home, _ := os.UserHomeDir()
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "access_token=") ||
+			strings.Contains(lower, "#access_token") ||
+			strings.Contains(lower, "authorization: bearer") ||
+			strings.Contains(lower, "cookie:") {
+			continue
+		}
+		if home != "" {
+			line = strings.ReplaceAll(line, home, "%USERPROFILE%")
+		}
+		if len(line) > 320 {
+			line = line[:320] + "…"
+		}
+		lines = append(lines, line)
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > 10 {
+		lines = append(append([]string{}, lines[:3]...), append([]string{"…"}, lines[len(lines)-6:]...)...)
+	}
+	result := strings.Join(lines, " | ")
+	if len(result) > 1600 {
+		result = result[:1600] + "…"
+	}
+	return result
 }
 
 func helperFriendlyVKError(err error, ctx context.Context) string {
