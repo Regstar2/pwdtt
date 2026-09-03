@@ -15,11 +15,39 @@ v=5.199
 
 ## Авторизация
 
-PWDTT открывает отдельное окно WebView2 с `https://oauth.vk.com/authorize`. Пользователь входит на странице VK. PWDTT не рисует собственную форму логина и не получает пароль VK.
+PWDTT не начинает вход напрямую с OAuth URL. Как и qWDTT, сначала создаётся обычная VK-сессия в отдельном WebView2-профиле.
 
-После успешной авторизации VK перенаправляет WebView2 на `https://oauth.vk.com/blank.html#access_token=...`. URL обрабатывается только Go backend: access token не передаётся в React и не выводится в лог.
+Последовательность:
 
-Для WebView2 используется отдельный профиль `%LOCALAPPDATA%\PWDTT\vk-webview2`, поэтому cookies VK сохраняются между запусками. Это повторяет идею Android WebView-сессии qWDTT и позволяет VK переиспользовать уже выполненный вход.
+```text
+https://m.vk.ru/login
+        ↓
+VK ID login
+        ↓
+remixsid в WebView2 cookies
+        ↓
+https://oauth.vk.com/authorize
+        ↓
+https://oauth.vk.com/blank.html#access_token=...
+        ↓
+calls.start
+```
+
+Пользователь вводит пароль только на странице VK. PWDTT не рисует собственную форму логина и не получает пароль VK.
+
+qWDTT содержит обход ошибки VK ID `Unknown method passed`. В Windows-реализацию перенесена та же стратегия повторов:
+
+1. `https://m.vk.ru/login`;
+2. после ошибки очистить cookies и открыть `https://m.vk.ru/`;
+3. после повторной ошибки очистить cookies и открыть `https://vk.ru/login` с desktop User-Agent `Chrome/131`.
+
+На первых двух попытках используется Android WebView-подобный User-Agent, чтобы поведение было ближе к qWDTT. Текст страницы отслеживается только для обнаружения `Unknown method`; содержимое формы, пароль, cookies и токены не логируются.
+
+Успешный вход определяется не по адресу страницы, а по наличию cookie `remixsid`, как в qWDTT. Пока `remixsid` не появился и VK ID login-flow не завершён, PWDTT не запускает OAuth получения токена.
+
+После появления VK-сессии открывается legacy OAuth URL. VK перенаправляет WebView2 на `https://oauth.vk.com/blank.html#access_token=...`. URL обрабатывается только Go backend: access token не передаётся в React и не выводится в лог.
+
+Для WebView2 используется отдельный профиль `%LOCALAPPDATA%\PWDTT\vk-webview2`, поэтому cookies VK сохраняются между запусками.
 
 ## Создание звонков
 
