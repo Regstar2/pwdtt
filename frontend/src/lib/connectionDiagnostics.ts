@@ -96,6 +96,7 @@ export function buildConnectionDiagnostics(entries: LogEntry[], tunnelState: Tun
   const lastProblem = latestMatch(entries, e => e.level === 'ERROR' || e.level === 'WARN');
   const lastDisconnectIndex = entries.findLastIndex(e => /—\s*Отключено|disconnected|stopped/i.test(e.message));
   const lastErrorIndex = entries.findLastIndex(e => e.level === 'ERROR');
+  const lastFailureStopIndex = entries.findLastIndex(e => /Отключено\s+из-за\s+ошибки/i.test(e.message));
 
   const wireGuardFromLogs = checkFromLogs(entries, /\[WG\]|WireGuard/i);
   const ipv4 = checkFromLogs(entries, /IPv4/i);
@@ -131,7 +132,7 @@ export function buildConnectionDiagnostics(entries: LogEntry[], tunnelState: Tun
     dns,
     lastProblem,
     lastProblemHint: lastProblem ? explainKnownProblem(lastProblem.message) : null,
-    recentFailure: tunnelState === 'idle' && lastErrorIndex > lastDisconnectIndex,
+    recentFailure: tunnelState === 'idle' && (lastErrorIndex > lastDisconnectIndex || lastFailureStopIndex === lastDisconnectIndex),
     serverReachable,
     turnReady: hasTurn,
     workersReady: hasWorker,
