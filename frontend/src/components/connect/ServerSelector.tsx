@@ -1,15 +1,22 @@
 import type { MouseEvent } from 'react';
-import { IconChevronUp } from '@tabler/icons-react';
+import { IconChevronDown } from '@tabler/icons-react';
 import type { Server } from '../../lib/types';
 import ServerList from './ServerList';
 import { ServerIcon, pingColor } from './ServerIcon';
 import { formatHashCount, getServerHashCount, getServerWorkers } from './ServerListItem';
+
+function latencyText(latency: number | null | undefined) {
+  if (latency === undefined) return '…';
+  if (latency === null) return '—';
+  return `${latency} мс`;
+}
 
 export default function ServerSelector({
   servers,
   selected,
   listOpen,
   obfsMode,
+  latencies,
   onToggleList,
   onSelect,
   onIconClick,
@@ -19,47 +26,57 @@ export default function ServerSelector({
   selected: Server | null;
   listOpen: boolean;
   obfsMode: 'audio' | 'video';
+  latencies: Record<string, number | null | undefined>;
   onToggleList: () => void;
   onSelect: (server: Server) => void;
   onIconClick: (event: MouseEvent<HTMLButtonElement>, server: Server) => void;
   onEdit: (server: Server) => void;
 }) {
   const subtitle = selected
-    ? `${obfsMode === 'video' ? 'Video' : 'Audio'} · ${getServerWorkers(selected)} воркеров · ${formatHashCount(getServerHashCount(selected))}`
+    ? `${selected.host} · ${obfsMode === 'video' ? 'Video' : 'Audio'} · ${getServerWorkers(selected)} воркеров · ${formatHashCount(getServerHashCount(selected))}`
     : 'Добавьте первый профиль';
+
+  const latency = selected ? latencies[selected.id] : undefined;
+  const latencyColor = latency != null ? pingColor(latency) : 'var(--text-4)';
 
   return (
     <div className="server-selector">
-      {listOpen && servers.length > 0 && (
-        <ServerList
-          servers={servers}
-          selected={selected}
-          obfsMode={obfsMode}
-          onSelect={onSelect}
-          onIconClick={onIconClick}
-          onEdit={onEdit}
-        />
-      )}
-
-      <button type="button" className={`status-server${!selected ? ' status-server--empty' : ''}`} onClick={onToggleList}>
-        <span className="status-server-icon"><ServerIcon iconKey={selected?.icon} size={23} /></span>
+      <button
+        type="button"
+        className={`status-server${!selected ? ' status-server--empty' : ''}`}
+        onClick={onToggleList}
+        aria-expanded={listOpen}
+      >
+        <span className="status-server-icon"><ServerIcon iconKey={selected?.icon} size={24} /></span>
         <span className="status-server-copy">
           <strong>{selected?.name ?? 'Нет серверов'}</strong>
           <small>{subtitle}</small>
         </span>
         <span className="status-server-side">
-          {selected?.ping != null && (
-            <span className="status-server-ping" style={{ color: pingColor(selected.ping) }} title="Задержка до сервера">
-              <span className="ping-dot" style={{ background: pingColor(selected.ping) }} />
-              {selected.ping} мс
+          {selected && (
+            <span className="status-server-ping" style={{ color: latencyColor }} title="ICMP-пинг до сервера">
+              {latency != null && <span className="ping-dot" style={{ background: latencyColor }} />}
+              {latencyText(latency)}
             </span>
           )}
-          <IconChevronUp
-            size={18}
-            style={{ transform: listOpen ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.2s' }}
+          <IconChevronDown
+            size={19}
+            style={{ transform: listOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform .2s' }}
           />
         </span>
       </button>
+
+      {listOpen && servers.length > 0 && (
+        <ServerList
+          servers={servers}
+          selected={selected}
+          obfsMode={obfsMode}
+          latencies={latencies}
+          onSelect={onSelect}
+          onIconClick={onIconClick}
+          onEdit={onEdit}
+        />
+      )}
     </div>
   );
 }
