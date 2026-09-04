@@ -309,22 +309,30 @@ export default function Connect() {
 
   return (
     <main className="connect-page">
-      <button type="button" className="btn-add" onClick={() => setAddServerOpen(true)} aria-label="Добавить сервер" title="Добавить сервер">
-        <IconPlus stroke={2} size={22} />
-      </button>
-
       <div className="connection-dashboard">
-        <ServerSelector
-          servers={servers}
-          selected={selected}
-          listOpen={listOpen}
-          obfsMode={obfsMode}
-          latencies={latencies}
-          onToggleList={() => setListOpen(open => !open)}
-          onSelect={server => { setSelected({ ...server }); setListOpen(false); }}
-          onIconClick={handleIconClick}
-          onEdit={server => setEditServer(server)}
-        />
+        <div className="server-toolbar">
+          <ServerSelector
+            servers={servers}
+            selected={selected}
+            listOpen={listOpen}
+            obfsMode={obfsMode}
+            latencies={latencies}
+            onToggleList={() => setListOpen(open => !open)}
+            onSelect={server => { setSelected({ ...server }); setListOpen(false); }}
+            onIconClick={handleIconClick}
+            onEdit={server => setEditServer(server)}
+          />
+
+          <button
+            type="button"
+            className="btn-add"
+            onClick={() => setAddServerOpen(true)}
+            aria-label="Добавить сервер"
+            title="Добавить сервер"
+          >
+            <IconPlus stroke={2} size={22} />
+          </button>
+        </div>
 
         <ConnectionHero
           theme={theme}
