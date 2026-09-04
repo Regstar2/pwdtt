@@ -50,6 +50,19 @@ curl.exe -6 https://www.cloudflare.com/cdn-cgi/trace
 - правило PWDTT отсутствует;
 - исходная IPv6-связность физического интерфейса восстановлена.
 
+## Проверка закрытия приложения
+
+1. Подключи full-tunnel PWDTT и убедись, что правило существует.
+2. Закрой приложение обычным способом, не нажимая Disconnect.
+3. Проверь:
+
+```powershell
+Get-NetFirewallRule -Name PWDTT-IPv6-Leak-Protection -ErrorAction SilentlyContinue
+curl.exe -6 https://www.cloudflare.com/cdn-cgi/trace
+```
+
+Ожидается, что правило удалено через Wails `OnShutdown`, а исходная IPv6-связность восстановлена.
+
 ## Проверка аварийного завершения
 
 1. Подключи full-tunnel PWDTT и убедись, что правило существует.
