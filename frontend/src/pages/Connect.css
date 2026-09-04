@@ -10,23 +10,36 @@
   animation: page-in .25s ease-out;
 }
 
+.server-toolbar {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  align-items: stretch;
+  gap: 10px;
+  position: relative;
+  z-index: 70;
+}
+
 .btn-add {
-  position: fixed;
-  top: 16px;
-  right: 20px;
-  z-index: 60;
-  width: 38px;
-  height: 38px;
+  width: 54px;
+  min-width: 54px;
+  height: 66px;
   display: grid;
   place-items: center;
-  background: var(--bg-2);
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg-2));
   border: 1px solid var(--border);
-  border-radius: 11px;
+  border-radius: 15px;
   cursor: pointer;
   color: var(--text);
-  transition: transform .15s, background .15s;
+  box-shadow: 0 8px 26px rgba(0,0,0,.06);
+  transition: transform .15s, background .15s, border-color .15s, box-shadow .15s;
 }
-.btn-add:hover { transform: scale(1.05); background: var(--bg-3); }
+.btn-add:hover {
+  transform: translateY(-1px);
+  background: var(--bg-2);
+  border-color: color-mix(in srgb, var(--border) 45%, var(--text-3));
+  box-shadow: 0 10px 30px rgba(0,0,0,.08);
+}
 
 .connection-dashboard {
   width: min(1050px, calc(100vw - 150px));
@@ -237,6 +250,7 @@
 
 .server-selector {
   width: 100%;
+  min-width: 0;
   position: relative;
   z-index: 70;
 }
@@ -489,6 +503,8 @@
 
 @media (max-width: 760px) {
   .connection-dashboard { width: calc(100vw - 86px); padding-inline: 10px; }
+  .server-toolbar { grid-template-columns: minmax(0, 1fr) 48px; gap: 8px; }
+  .btn-add { width: 48px; min-width: 48px; height: 58px; border-radius: 13px; }
   .connection-stats { grid-template-columns: repeat(2, 1fr); }
   .stat-item { border-bottom: 1px solid var(--border); }
   .connection-network-info { grid-template-columns: 1fr; }
