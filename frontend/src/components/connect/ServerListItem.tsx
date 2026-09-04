@@ -22,10 +22,17 @@ export function getServerWorkers(server: Server) {
   return Math.floor(workers / 9) * 9;
 }
 
+function latencyText(latency: number | null | undefined) {
+  if (latency === undefined) return '…';
+  if (latency === null) return '—';
+  return `${latency} мс`;
+}
+
 export default function ServerListItem({
   server,
   selected,
   obfsMode,
+  latency,
   onSelect,
   onIconClick,
   onEdit,
@@ -33,11 +40,13 @@ export default function ServerListItem({
   server: Server;
   selected: boolean;
   obfsMode: 'audio' | 'video';
+  latency: number | null | undefined;
   onSelect: () => void;
   onIconClick: (event: MouseEvent<HTMLButtonElement>) => void;
   onEdit: () => void;
 }) {
   const metadata = `${obfsMode === 'video' ? 'Video' : 'Audio'} · ${getServerWorkers(server)} воркеров · ${formatHashCount(getServerHashCount(server))}`;
+  const latencyColor = latency != null ? pingColor(latency) : 'var(--text-4)';
 
   return (
     <div
@@ -47,7 +56,12 @@ export default function ServerListItem({
       onClick={onSelect}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(); }}
     >
-      <button type="button" className="server-icon-btn" onClick={event => { event.stopPropagation(); onIconClick(event); }} aria-label="Выбрать иконку">
+      <button
+        type="button"
+        className="server-icon-btn"
+        onClick={event => { event.stopPropagation(); onIconClick(event); }}
+        aria-label="Выбрать иконку"
+      >
         <ServerIcon iconKey={server.icon} size={22} />
       </button>
 
@@ -61,13 +75,16 @@ export default function ServerListItem({
       </div>
 
       <div className="server-side">
-        {server.ping != null && (
-          <span className="server-ping" style={{ color: pingColor(server.ping) }} title="Задержка до сервера">
-            <span className="ping-dot" style={{ background: pingColor(server.ping) }} />
-            {server.ping} мс
-          </span>
-        )}
-        <button type="button" className="server-edit-btn" onClick={event => { event.stopPropagation(); onEdit(); }} aria-label="Редактировать сервер">
+        <span className="server-ping" style={{ color: latencyColor }} title="ICMP-пинг до сервера">
+          {latency != null && <span className="ping-dot" style={{ background: latencyColor }} />}
+          {latencyText(latency)}
+        </span>
+        <button
+          type="button"
+          className="server-edit-btn"
+          onClick={event => { event.stopPropagation(); onEdit(); }}
+          aria-label="Редактировать сервер"
+        >
           <IconPencil size={16} stroke={2} />
         </button>
       </div>
