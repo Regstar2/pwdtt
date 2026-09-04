@@ -447,7 +447,10 @@ export default function Connect() {
             tunnelState={tunnelState}
             diagnostics={diagnostics}
             onRetry={doConnect}
-            onDismiss={() => logStore.clear()}
+            onDismiss={() => {
+              logStore.clear();
+              setListOpen(true);
+            }}
           />
         ) : (
           <ServerSelector
