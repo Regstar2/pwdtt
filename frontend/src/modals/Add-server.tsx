@@ -64,14 +64,15 @@ export default function AddServer({ onClose, onAdd }: Props) {
       await SaveProfile(name.trim(), {
         peer: host,
         password,
-        hashes: [],
+        hashes,
+        hash_policy: { mode: 'local', autoCheck: true, autoReplace: false },
         turn: '', port: '', device_id: '', listen: '',
       });
     } catch (e) {
       console.warn('SaveProfile failed:', e);
     }
 
-    onAdd({ name: name.trim(), host, password, hashes, power });
+    onAdd({ name: name.trim(), host, password, hashes, power, hashMode: 'local', hashAutoCheck: true, hashAutoReplace: false });
     setSaving(false);
     onClose();
   };
