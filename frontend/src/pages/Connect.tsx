@@ -13,7 +13,9 @@ import { serverStore, settingsStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import { themeStore } from '../lib/stores/themeStore';
 import { toastStore } from '../lib/stores/toastStore';
-import { logStore } from '../lib/stores/logStore';
+import { logStore, type LogEntry } from '../lib/stores/logStore';
+import { buildConnectionDiagnostics } from '../lib/connectionDiagnostics';
+import ConnectionStatus from '../components/ConnectionStatus';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { SaveProfile } from '../../wailsjs/go/backend/App';
 import type { Server, TunnelState } from '../lib/types';
@@ -243,6 +245,9 @@ export default function Connect() {
   const [theme, setTheme] = useState(() => themeStore.get());
   useEffect(() => themeStore.subscribe(setTheme), []);
 
+  const [sessionLogs, setSessionLogs] = useState<LogEntry[]>(() => logStore.getAll());
+  useEffect(() => logStore.subscribe(setSessionLogs), []);
+
   const selectedRef = useRef(selected);
   const tunnelStateRef = useRef(tunnelState);
 
@@ -409,6 +414,11 @@ export default function Connect() {
 
   const isActive = tunnelState === 'connected';
   const isSpinning = tunnelState === 'connecting';
+  const configuredWorkers = selected
+    ? selected.power || Math.max(9, (selected.hashes ?? []).filter(h => h.trim()).length * 9)
+    : 0;
+  const diagnostics = buildConnectionDiagnostics(sessionLogs, tunnelState);
+  const showConnectionStatus = selected && (tunnelState !== 'idle' || diagnostics.recentFailure);
 
   return (
     <>
@@ -429,15 +439,27 @@ export default function Connect() {
 
         <span className="tunnel-label">{selected ? TUNNEL_LABEL[tunnelState] : 'Нет серверов'}</span>
 
-        <ServerSelector
-          servers={servers}
-          selected={selected}
-          listOpen={listOpen}
-          onToggleList={() => setListOpen(o => !o)}
-          onSelect={(s) => { setSelected({ ...s }); setListOpen(false); }}
-          onIconClick={handleIconClick}
-          onEdit={(s) => setEditServer(s)}
-        />
+        {showConnectionStatus && selected ? (
+          <ConnectionStatus
+            serverName={selected.name}
+            ping={selected.ping}
+            configuredWorkers={configuredWorkers}
+            tunnelState={tunnelState}
+            diagnostics={diagnostics}
+            onRetry={doConnect}
+            onDismiss={() => logStore.clear()}
+          />
+        ) : (
+          <ServerSelector
+            servers={servers}
+            selected={selected}
+            listOpen={listOpen}
+            onToggleList={() => setListOpen(o => !o)}
+            onSelect={(s) => { setSelected({ ...s }); setListOpen(false); }}
+            onIconClick={handleIconClick}
+            onEdit={(s) => setEditServer(s)}
+          />
+        )}
 
         {addServerOpen && <AddServer onClose={() => setAddServerOpen(false)} onAdd={handleAdd} />}
         {editServer && (
