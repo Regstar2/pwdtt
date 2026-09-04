@@ -53,7 +53,11 @@ func (w *WG) Apply(conf string, turnIPs []string, logf wgLogFunc) error {
 	case "linux":
 		return w.applyLinux(conf, turnIPs, logf)
 	case "windows":
-		return w.applyWindows(conf, turnIPs, logf)
+		if err := w.applyWindows(conf, turnIPs, logf); err != nil {
+			w.teardownWindowsWithLog(logf)
+			return err
+		}
+		return nil
 	case "darwin":
 		return w.applyDarwin(conf, turnIPs, logf)
 	default:
@@ -61,15 +65,18 @@ func (w *WG) Apply(conf string, turnIPs []string, logf wgLogFunc) error {
 	}
 }
 
-// CleanupStaleExcludeRoutes убирает exclude-маршруты, оставшиеся после краша
-// прошлого запуска (когда helper не успел сделать уборку). Вызывать при
-// старте приложения; на платформах без такой проблемы — no-op.
+// CleanupStaleExcludeRoutes убирает сетевое состояние, оставшееся после краша
+// прошлого запуска. На macOS это stale exclude-маршруты, на Windows — временная
+// IPv6 leak-protection. Вызывать при старте приложения.
 func CleanupStaleExcludeRoutes(logf wgLogFunc) {
 	if logf == nil {
 		logf = func(msg string) { log.Printf("[WG] %s", msg) }
 	}
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		cleanupStaleExcludeRoutesDarwin(logf)
+	case "windows":
+		cleanupStaleIPv6LeakProtection(logf)
 	}
 }
 
@@ -135,6 +142,15 @@ func parseWGConfig(conf string) (addr, mtu string, allowedIPs []string, wgConf s
 	}
 	wgConf = out.String()
 	return
+}
+
+func isIPv4FullTunnel(allowedIPs []string) bool {
+	for _, cidr := range allowedIPs {
+		if strings.TrimSpace(cidr) == "0.0.0.0/0" {
+			return true
+		}
+	}
+	return false
 }
 
 // ═══════════════════════════════════════════════════
@@ -281,7 +297,7 @@ var wintunDLLData []byte
 func InitWintun(dll []byte) { wintunDLLData = dll }
 
 func (w *WG) applyWindows(conf string, turnIPs []string, logf wgLogFunc) error {
-	w.teardownWindows()
+	w.teardownWindowsWithLog(logf)
 
 	if err := extractWintun(); err != nil {
 		return fmt.Errorf("extract wintun.dll: %w", err)
@@ -374,14 +390,28 @@ func (w *WG) applyWindows(conf string, turnIPs []string, logf wgLogFunc) error {
 	}
 	w.activeRoutes = tunnelRoutes
 
+	if isIPv4FullTunnel(allowedIPs) {
+		if err := enableIPv6LeakProtection(logf); err != nil {
+			return fmt.Errorf("IPv6 leak protection: %w", err)
+		}
+	} else {
+		logf("IPv6 leak protection пропущена: конфигурация не является IPv4 full-tunnel")
+	}
+
 	logf(fmt.Sprintf("Туннель %s поднят, AllowedIPs: %v", wgIface, tunnelRoutes))
 	return nil
 }
 
 func (w *WG) teardownWindows() {
-	if w.activeDevice == nil && w.activeTun == nil {
-		return
+	w.teardownWindowsWithLog(nil)
+}
+
+func (w *WG) teardownWindowsWithLog(logf wgLogFunc) {
+	if logf == nil {
+		logf = func(msg string) { log.Printf("[WG] %s", msg) }
 	}
+
+	hadTunnel := w.activeDevice != nil || w.activeTun != nil
 
 	// Restore physical gateway metric (must happen BEFORE closing WG device)
 	if w.physGW != "" {
@@ -410,8 +440,13 @@ func (w *WG) teardownWindows() {
 		w.activeTun = nil
 	}
 
-	// Clean up orphaned adapters
-	cleanupWintunAdapter()
+	if hadTunnel {
+		cleanupWintunAdapter()
+	}
+
+	if err := restoreIPv6LeakProtection(logf); err != nil {
+		logf(fmt.Sprintf("Не удалось восстановить IPv6 после отключения: %v", err))
+	}
 }
 
 // cleanupWintunAdapter attempts to delete any existing wintun adapter from
@@ -589,4 +624,8 @@ func ToHex(b64 string) string {
 
 func ParseCIDR(cidr string) (ip, mask string, err error) {
 	return parseCIDR(cidr)
+}
+
+func IsIPv4FullTunnel(allowedIPs []string) bool {
+	return isIPv4FullTunnel(allowedIPs)
 }

@@ -160,6 +160,12 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 				}
 				if err := wg.Apply(ev.Data, ev.TurnIPs, wgLogf); err != nil {
 					b.onEvent("error", fmt.Sprintf("[WG] Ошибка: %v", err))
+					b.mu.Lock()
+					c := b.core
+					b.mu.Unlock()
+					if c != nil {
+						go c.Stop()
+					}
 				} else {
 					b.onEvent("log", "INFO", "[WG] Конфиг применён, туннель активен")
 					b.onEvent("state_changed", "connected")
@@ -173,6 +179,11 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			}
 		}
 	}
+
+	// Канал событий закрывается и при штатном Stop, и при аварийном завершении ядра.
+	// Teardown идемпотентен и гарантирует снятие временной IPv6-защиты.
+	wg.Teardown()
+	log.Printf("[BRIDGE] WG интерфейс и IPv6 leak protection сняты после завершения ядра")
 
 	b.mu.Lock()
 	b.running = false
