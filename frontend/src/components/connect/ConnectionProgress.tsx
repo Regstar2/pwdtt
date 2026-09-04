@@ -30,9 +30,6 @@ export default function ConnectionProgress({ connection }: { connection: Connect
           );
         })}
       </div>
-      {connection.state === 'connecting' && connection.message && (
-        <div className="progress-message">{connection.message}</div>
-      )}
     </section>
   );
 }
