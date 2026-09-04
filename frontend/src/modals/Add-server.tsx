@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { IconCircleHalf2, IconEye, IconEyeOff, IconX, IconHash } from '@tabler/icons-react';
 import type { Server } from '../lib/types';
 import { SaveProfile } from '../../wailsjs/go/backend/App';
+import { backend } from '../../wailsjs/go/models';
 import { parseWdttUrl } from '../lib/utils/wdttLink';
 import Hash from './Hash';
 
@@ -61,13 +62,13 @@ export default function AddServer({ onClose, onAdd }: Props) {
     const host = `${ip.trim()}:${port.trim() || '56000'}`;
 
     try {
-      await SaveProfile(name.trim(), {
+      await SaveProfile(name.trim(), backend.ProfileData.createFrom({
         peer: host,
         password,
         hashes,
         hash_policy: { mode: 'local', autoCheck: true, autoReplace: false },
         turn: '', port: '', device_id: '', listen: '',
-      });
+      }));
     } catch (e) {
       console.warn('SaveProfile failed:', e);
     }
