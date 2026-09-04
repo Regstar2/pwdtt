@@ -11,7 +11,7 @@ import { themeStore } from '../lib/stores/themeStore';
 import { toastStore } from '../lib/stores/toastStore';
 import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
-import { SaveProfile } from '../../wailsjs/go/backend/App';
+import { MeasureLatency, SaveProfile } from '../../wailsjs/go/backend/App';
 import type { Server, TunnelState } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles } from '../../wailsjs/go/backend/App';
 import ConnectionHero from '../components/connect/ConnectionHero';
@@ -79,6 +79,7 @@ export default function Connect() {
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [iconMenu, setIconMenu] = useState<{ server: Server; x: number; y: number } | null>(null);
   const [linkFlash, setLinkFlash] = useState(false);
+  const [latencies, setLatencies] = useState<Record<string, number | null | undefined>>({});
 
   const selectedRef = useRef(selected);
   const linkFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,6 +98,38 @@ export default function Connect() {
   useEffect(() => () => {
     if (linkFlashTimerRef.current) clearTimeout(linkFlashTimerRef.current);
   }, []);
+
+  const latencyTargetsKey = servers.map(server => `${server.id}:${server.host}`).join('|');
+  useEffect(() => {
+    if (servers.length === 0 || tunnelState !== 'idle') return;
+
+    let cancelled = false;
+
+    const measureAll = async () => {
+      const targets = serverStore.getAll();
+      const results = await Promise.all(targets.map(async server => {
+        try {
+          const value = await MeasureLatency(server.host);
+          return [server.id, value >= 0 ? value : null] as const;
+        } catch {
+          return [server.id, null] as const;
+        }
+      }));
+
+      if (cancelled) return;
+      const next: Record<string, number | null | undefined> = {};
+      for (const [id, value] of results) next[id] = value;
+      setLatencies(next);
+    };
+
+    void measureAll();
+    const timer = window.setInterval(() => { void measureAll(); }, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [latencyTargetsKey, tunnelState]);
 
   useEffect(() => {
     ListProfiles().then(profiles => {
@@ -281,6 +314,18 @@ export default function Connect() {
       </button>
 
       <div className="connection-dashboard">
+        <ServerSelector
+          servers={servers}
+          selected={selected}
+          listOpen={listOpen}
+          obfsMode={obfsMode}
+          latencies={latencies}
+          onToggleList={() => setListOpen(open => !open)}
+          onSelect={server => { setSelected({ ...server }); setListOpen(false); }}
+          onIconClick={handleIconClick}
+          onEdit={server => setEditServer(server)}
+        />
+
         <ConnectionHero
           theme={theme}
           connection={connection}
@@ -295,19 +340,8 @@ export default function Connect() {
 
         <ConnectionStats
           connection={connection}
-          selected={selected}
+          latency={selected ? latencies[selected.id] : undefined}
           onOpenLogs={() => navigate('/logs')}
-        />
-
-        <ServerSelector
-          servers={servers}
-          selected={selected}
-          listOpen={listOpen}
-          obfsMode={obfsMode}
-          onToggleList={() => setListOpen(open => !open)}
-          onSelect={server => { setSelected({ ...server }); setListOpen(false); }}
-          onIconClick={handleIconClick}
-          onEdit={server => setEditServer(server)}
         />
       </div>
 
