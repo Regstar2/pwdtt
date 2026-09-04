@@ -122,6 +122,7 @@ func (a *App) MeasureLatency(peerAddr string) int {
 
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, "ping", latencyPingArgs(host)...)
+	configureBackgroundCommand(cmd)
 	if err := cmd.Run(); err != nil {
 		return -1
 	}
