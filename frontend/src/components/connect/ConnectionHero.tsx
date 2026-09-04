@@ -35,16 +35,19 @@ export default function ConnectionHero({
 
   useEffect(() => {
     if (connection.state !== 'connected') return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [connection.state]);
 
   const hasError = connection.state === 'idle' && Boolean(connection.lastError);
+  const connected = connection.state === 'connected';
+
   const title = !selected
     ? 'Добавьте сервер'
     : hasError
       ? 'Не удалось подключиться'
-      : connection.state === 'connected'
+      : connected
         ? 'Подключено'
         : connection.state === 'connecting'
           ? 'Подключение к серверу'
@@ -56,13 +59,13 @@ export default function ConnectionHero({
     ? 'Создайте профиль сервера для подключения'
     : hasError
       ? connection.lastError ?? ''
-      : connection.state === 'connected'
-        ? 'Туннель работает'
+      : connected
+        ? 'Туннель активен, трафик идёт через PWDTT'
         : connection.state === 'connecting'
           ? (connection.message || 'Подготавливаем защищённый туннель')
           : connection.state === 'disconnecting'
             ? 'Завершаем сетевые сессии'
-            : `${selected.name} · нажмите кнопку для подключения`;
+            : `Выбран ${selected.name} · нажмите кнопку подключения`;
 
   return (
     <section className="connection-hero">
@@ -71,9 +74,9 @@ export default function ConnectionHero({
         className={`power-btn power-btn--${connection.state}${hasError ? ' power-btn--error' : ''}`}
         onClick={onTunnel}
         disabled={!selected || connection.state === 'disconnecting'}
-        aria-label={connection.state === 'connected' || connection.state === 'connecting' ? 'Отключить' : 'Подключить'}
+        aria-label={connected || connection.state === 'connecting' ? 'Отключить' : 'Подключить'}
       >
-        <div className={`orb${connection.state === 'connecting' ? ' orb--spinning' : ''}${connection.state === 'connected' ? ' orb--active' : ''}${linkFlash ? ' orb--flash' : ''}`}>
+        <div className={`orb${connection.state === 'connecting' ? ' orb--spinning' : ''}${connected ? ' orb--active' : ''}${linkFlash ? ' orb--flash' : ''}`}>
           <img src={theme === 'dark' ? shapeLight : shapeDark} alt="" draggable={false} />
         </div>
         <div className="power-icon">
@@ -82,17 +85,24 @@ export default function ConnectionHero({
       </button>
 
       <div className={`hero-status${hasError ? ' hero-status--error' : ''}`}>
-        <strong>{title}</strong>
-        <span>{subtitle}</span>
-        {connection.state === 'connected' && (
-          <time>{formatDuration(connection.connectedAt, now)}</time>
-        )}
-        {hasError && selected && (
-          <div className="hero-actions">
-            <button type="button" onClick={onRetry}>Повторить</button>
-            <button type="button" className="hero-action-secondary" onClick={onLogs}>Логи</button>
-          </div>
-        )}
+        <div className="hero-status-head">
+          <strong>{title}</strong>
+          {connected && (
+            <>
+              <span className="hero-status-separator">·</span>
+              <time>{formatDuration(connection.connectedAt, now)}</time>
+            </>
+          )}
+        </div>
+        <div className="hero-status-foot">
+          <span>{subtitle}</span>
+          {hasError && selected && (
+            <div className="hero-actions">
+              <button type="button" onClick={onRetry}>Повторить</button>
+              <button type="button" className="hero-action-secondary" onClick={onLogs}>Логи</button>
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
