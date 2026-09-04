@@ -50,6 +50,11 @@ func (a *App) Startup(ctx context.Context) {
 	})
 }
 
+// Shutdown освобождает внешнее сетевое состояние перед завершением приложения.
+func (a *App) Shutdown(ctx context.Context) {
+	wg.Teardown()
+}
+
 // ═══════════════════════════════════════════════════
 // WAILS BINDINGS
 // ═══════════════════════════════════════════════════
