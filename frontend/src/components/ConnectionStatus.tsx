@@ -22,6 +22,7 @@ interface Props {
   tunnelState: TunnelState;
   diagnostics: ConnectionDiagnostics;
   onRetry: () => void;
+  onDismiss: () => void;
 }
 
 function formatDuration(totalSeconds: number) {
@@ -44,6 +45,7 @@ export default function ConnectionStatus({
   tunnelState,
   diagnostics,
   onRetry,
+  onDismiss,
 }: Props) {
   const navigate = useNavigate();
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
@@ -104,7 +106,10 @@ export default function ConnectionStatus({
         {diagnostics.lastProblemHint && <div className="connection-error-hint">{diagnostics.lastProblemHint}</div>}
         <div className="connection-dock__footer">
           <span>Воркеры: {diagnostics.activeWorkers ?? '—'} / {diagnostics.totalWorkers ?? configuredWorkers}</span>
-          <button type="button" className="retry-btn" onClick={onRetry}><IconRefresh size={15} />Повторить</button>
+          <div className="connection-dock__actions">
+            <button type="button" className="dismiss-btn" onClick={onDismiss}>Сменить сервер</button>
+            <button type="button" className="retry-btn" onClick={onRetry}><IconRefresh size={15} />Повторить</button>
+          </div>
         </div>
       </section>
     );
