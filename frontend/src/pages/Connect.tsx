@@ -213,6 +213,7 @@ export default function Connect() {
     return all.find(s => s.id === lastId) ?? all[0];
   });
   const [listOpen, setListOpen] = useState(false);
+  const [connectionStatusDismissed, setConnectionStatusDismissed] = useState(false);
 
   useEffect(() => {
     ListProfiles().then(profiles => {
@@ -303,6 +304,7 @@ export default function Connect() {
         });
         setServers(serverStore.getAll());
         setSelected({ ...s });
+        setConnectionStatusDismissed(true);
         setLinkFlash(true);
         if (linkFlashTimerRef.current) clearTimeout(linkFlashTimerRef.current);
         linkFlashTimerRef.current = setTimeout(() => setLinkFlash(false), 800);
@@ -326,6 +328,8 @@ export default function Connect() {
       connectingRef.current = false;
       return;
     }
+    setConnectionStatusDismissed(false);
+    setListOpen(false);
     tunnelStore.set('connecting');
     logStore.clear();
     try {
@@ -378,6 +382,7 @@ export default function Connect() {
     const s = serverStore.add(data);
     setServers(serverStore.getAll());
     setSelected(s);
+    setConnectionStatusDismissed(true);
   };
 
   const handleSave = (server: Server) => {
@@ -418,7 +423,9 @@ export default function Connect() {
     ? selected.power || Math.max(9, (selected.hashes ?? []).filter(h => h.trim()).length * 9)
     : 0;
   const diagnostics = buildConnectionDiagnostics(sessionLogs, tunnelState);
-  const showConnectionStatus = selected && (tunnelState !== 'idle' || diagnostics.recentFailure);
+  const showConnectionStatus = selected
+    && !connectionStatusDismissed
+    && (tunnelState !== 'idle' || diagnostics.recentFailure);
 
   return (
     <>
@@ -448,7 +455,7 @@ export default function Connect() {
             diagnostics={diagnostics}
             onRetry={doConnect}
             onDismiss={() => {
-              logStore.clear();
+              setConnectionStatusDismissed(true);
               setListOpen(true);
             }}
           />
@@ -458,7 +465,11 @@ export default function Connect() {
             selected={selected}
             listOpen={listOpen}
             onToggleList={() => setListOpen(o => !o)}
-            onSelect={(s) => { setSelected({ ...s }); setListOpen(false); }}
+            onSelect={(s) => {
+              setSelected({ ...s });
+              setListOpen(false);
+              setConnectionStatusDismissed(true);
+            }}
             onIconClick={handleIconClick}
             onEdit={(s) => setEditServer(s)}
           />
