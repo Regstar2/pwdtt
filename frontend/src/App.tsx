@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Connect from './pages/Connect';
 import Logs from './pages/Logs';
+import VKHashes from './pages/VKHashes';
 import Toast from './components/Toast';
 import UpdateModal from './modals/UpdateModal';
 import { wdttLinkStore, parseWdttUrl } from './lib/utils/wdttLink';
@@ -185,6 +186,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Connect />} />
           <Route path="/logs" element={<Logs />} />
+          <Route path="/hashes" element={<VKHashes />} />
         </Route>
       </Routes>
       <Toast />
