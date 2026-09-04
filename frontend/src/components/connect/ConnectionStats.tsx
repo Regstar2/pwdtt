@@ -1,7 +1,6 @@
 import {
-  IconArrowDown, IconArrowUp, IconFileText, IconLockFilled, IconServer, IconWifi,
+  IconArrowDown, IconArrowUp, IconFileText, IconLockFilled, IconRoute, IconServer, IconWifi,
 } from '@tabler/icons-react';
-import type { Server } from '../../lib/types';
 import type { ConnectionDashboardState } from '../../lib/stores/connectionStore';
 
 function formatBytes(value: number) {
@@ -12,13 +11,19 @@ function formatBytes(value: number) {
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} ГБ`;
 }
 
+function latencyLabel(value: number | null | undefined) {
+  if (value === undefined) return '…';
+  if (value === null) return '—';
+  return `${value} мс`;
+}
+
 export default function ConnectionStats({
   connection,
-  selected,
+  latency,
   onOpenLogs,
 }: {
   connection: ConnectionDashboardState;
-  selected: Server | null;
+  latency: number | null | undefined;
   onOpenLogs: () => void;
 }) {
   const connected = connection.state === 'connected';
@@ -26,16 +31,14 @@ export default function ConnectionStats({
   return (
     <>
       <section className="connection-stats">
-        {selected?.ping != null && (
-          <div className="stat-item">
-            <IconWifi size={20} stroke={1.8} />
-            <span>До сервера</span>
-            <strong>{selected.ping} мс</strong>
-          </div>
-        )}
+        <div className="stat-item">
+          <IconWifi size={20} stroke={1.8} />
+          <span>Пинг</span>
+          <strong>{latencyLabel(latency)}</strong>
+        </div>
         <div className="stat-item">
           <IconServer size={20} stroke={1.8} />
-          <span>Активных воркеров</span>
+          <span>Активные воркеры</span>
           <strong>{connection.totalWorkers > 0 ? `${connection.activeWorkers} / ${connection.totalWorkers}` : '— / —'}</strong>
         </div>
         <div className="stat-item">
@@ -48,24 +51,36 @@ export default function ConnectionStats({
           <span>Отдача</span>
           <strong>{formatBytes(connection.bytesUp)}</strong>
         </div>
+        <div className="stat-item">
+          <IconRoute size={20} stroke={1.8} />
+          <span>Маршрут</span>
+          <strong>{connected ? 'IPv4 ✓ · IPv6 блок' : 'Ожидание'}</strong>
+        </div>
       </section>
 
-      {connected && (
-        <section className="connection-network-info">
-          <div>
-            <IconServer size={18} stroke={1.8} />
-            <span><strong>IPv4</strong><small>через туннель</small></span>
-          </div>
-          <div>
-            <IconLockFilled size={18} />
-            <span><strong>IPv6</strong><small>заблокирован</small></span>
-          </div>
-          <button type="button" onClick={onOpenLogs}>
-            <IconFileText size={18} stroke={1.8} />
-            Открыть логи
-          </button>
-        </section>
-      )}
+      <section className="connection-network-info" aria-label="Состояние сети">
+        <div className="network-info-label">
+          <span>Сеть</span>
+        </div>
+        <div>
+          <IconServer size={18} stroke={1.8} />
+          <span>
+            <strong>IPv4</strong>
+            <small>{connected ? 'через туннель' : 'ожидание подключения'}</small>
+          </span>
+        </div>
+        <div>
+          <IconLockFilled size={18} />
+          <span>
+            <strong>IPv6</strong>
+            <small>{connected ? 'заблокирован' : 'защита включится при подключении'}</small>
+          </span>
+        </div>
+        <button type="button" onClick={onOpenLogs}>
+          <IconFileText size={18} stroke={1.8} />
+          Открыть логи
+        </button>
+      </section>
     </>
   );
 }
