@@ -34,9 +34,7 @@ func enableIPv6LeakProtection(logf wgLogFunc) error {
 	ipv6LeakProtectionActive = false
 
 	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
-$aliases = @(Get-NetAdapter -Name '*' -Physical -ErrorAction Stop | Select-Object -ExpandProperty Name)
-if ($aliases.Count -eq 0) { throw 'No physical network adapters found' }
-New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outbound IPv6 block used by PWDTT while an IPv4-only full tunnel is active.' -Direction Outbound -Action Block -Enabled True -Profile Any -RemoteAddress '::/0' -InterfaceAlias $aliases -ErrorAction Stop | Out-Null
+New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outbound IPv6 block used by PWDTT while an IPv4-only full tunnel is active.' -Direction Outbound -Action Block -Enabled True -Profile Any -RemoteAddress '::/0' -ErrorAction Stop | Out-Null
 `, ipv6LeakProtectionRuleName, ipv6LeakProtectionRuleDisplayName)
 
 	if _, err := runPowerShellWindows(script); err != nil {
@@ -45,7 +43,7 @@ New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outboun
 	}
 
 	ipv6LeakProtectionActive = true
-	logf("IPv6 leak protection включена для физических сетевых интерфейсов")
+	logf("IPv6 leak protection включена: исходящий IPv6 временно заблокирован")
 	return nil
 }
 
