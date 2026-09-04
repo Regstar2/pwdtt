@@ -121,7 +121,7 @@
   padding: 13px 18px 10px;
 }
 .connection-progress-track { display: flex; align-items: flex-start; justify-content: center; width: 100%; }
-.progress-segment { display: flex; align-items: 16px; flex: 1; min-width: 0; }
+.progress-segment { display: flex; align-items: flex-start; flex: 1; min-width: 0; }
 .progress-step { width: 58px; flex: 0 0 58px; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text-4); }
 .progress-dot {
   width: 28px;
