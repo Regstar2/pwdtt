@@ -34,7 +34,7 @@ func enableIPv6LeakProtection(logf wgLogFunc) error {
 	ipv6LeakProtectionActive = false
 
 	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
-New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outbound IPv6 block used by PWDTT while an IPv4-only full tunnel is active.' -Direction Outbound -Action Block -Enabled True -Profile Any -RemoteAddress '::/0' -ErrorAction Stop | Out-Null
+New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outbound IPv6 block used by PWDTT while an IPv4-only full tunnel is active.' -Direction Outbound -Action Block -Enabled True -Profile Any -RemoteAddress 'Any6' -ErrorAction Stop | Out-Null
 `, ipv6LeakProtectionRuleName, ipv6LeakProtectionRuleDisplayName)
 
 	if _, err := runPowerShellWindows(script); err != nil {
@@ -107,7 +107,8 @@ if ($null -ne $rule) {
 }
 
 func runPowerShellWindows(script string) (string, error) {
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+	wrappedScript := "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; " + script
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", wrappedScript)
 	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
