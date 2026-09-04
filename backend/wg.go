@@ -626,6 +626,3 @@ func ParseCIDR(cidr string) (ip, mask string, err error) {
 	return parseCIDR(cidr)
 }
 
-func IsIPv4FullTunnel(allowedIPs []string) bool {
-	return isIPv4FullTunnel(allowedIPs)
-}

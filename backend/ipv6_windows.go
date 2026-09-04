@@ -7,6 +7,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 const (
@@ -14,7 +15,15 @@ const (
 	ipv6LeakProtectionRuleDisplayName = "PWDTT IPv6 leak protection"
 )
 
+var (
+	ipv6LeakProtectionMu     sync.Mutex
+	ipv6LeakProtectionActive bool
+)
+
 func enableIPv6LeakProtection(logf wgLogFunc) error {
+	ipv6LeakProtectionMu.Lock()
+	defer ipv6LeakProtectionMu.Unlock()
+
 	if logf == nil {
 		logf = func(msg string) { log.Printf("[WG] %s", msg) }
 	}
@@ -22,6 +31,7 @@ func enableIPv6LeakProtection(logf wgLogFunc) error {
 	if _, err := removeIPv6LeakProtectionRule(); err != nil {
 		return fmt.Errorf("remove stale firewall rule: %w", err)
 	}
+	ipv6LeakProtectionActive = false
 
 	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
 $aliases = @(Get-NetAdapter -Name '*' -Physical -ErrorAction Stop | Select-Object -ExpandProperty Name)
@@ -34,11 +44,15 @@ New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outboun
 		return err
 	}
 
+	ipv6LeakProtectionActive = true
 	logf("IPv6 leak protection включена для физических сетевых интерфейсов")
 	return nil
 }
 
 func restoreIPv6LeakProtection(logf wgLogFunc) error {
+	ipv6LeakProtectionMu.Lock()
+	defer ipv6LeakProtectionMu.Unlock()
+
 	if logf == nil {
 		logf = func(msg string) { log.Printf("[WG] %s", msg) }
 	}
@@ -47,6 +61,7 @@ func restoreIPv6LeakProtection(logf wgLogFunc) error {
 	if err != nil {
 		return err
 	}
+	ipv6LeakProtectionActive = false
 	if removed {
 		logf("IPv6 leak protection отключена, исходная IPv6-связность восстановлена")
 	}
@@ -54,6 +69,13 @@ func restoreIPv6LeakProtection(logf wgLogFunc) error {
 }
 
 func cleanupStaleIPv6LeakProtection(logf wgLogFunc) {
+	ipv6LeakProtectionMu.Lock()
+	defer ipv6LeakProtectionMu.Unlock()
+
+	if ipv6LeakProtectionActive {
+		return
+	}
+
 	if logf == nil {
 		logf = func(msg string) { log.Printf("[WG] %s", msg) }
 	}
