@@ -104,12 +104,16 @@ func (s *Store) SaveProfile(name string, p ProfileData) error {
 	if name == "" {
 		return fmt.Errorf("invalid profile name")
 	}
-	if p.DeviceID == "" {
-		if existing, err := s.LoadProfile(name); err == nil && existing.DeviceID != "" {
+	if existing, err := s.LoadProfile(name); err == nil {
+		if p.DeviceID == "" && existing.DeviceID != "" {
 			p.DeviceID = existing.DeviceID
-		} else {
-			p.DeviceID = uuid.New().String()
 		}
+		if p.HashPolicy == nil {
+			p.HashPolicy = existing.HashPolicy
+		}
+	}
+	if p.DeviceID == "" {
+		p.DeviceID = uuid.New().String()
 	}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
