@@ -5,6 +5,7 @@ import type { Server } from '../lib/types';
 import Hash from './Hash';
 import { SaveProfile, DeleteProfile } from '../../wailsjs/go/backend/App';
 import { toastStore } from '../lib/stores/toastStore';
+import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
 
 interface Props {
   server: Server;
@@ -51,11 +52,13 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
       hashes,
       power,
     };
+    const hashPolicy = getServerVKHashPolicy(updated);
     // Сначала сохраняем новый, потом удаляем старый
     await SaveProfile(updated.name, {
       peer: updated.host,
       password: updated.password,
       hashes,
+      hash_policy: { mode: hashPolicy.mode, autoCheck: hashPolicy.autoCheck, autoReplace: hashPolicy.autoReplace },
       turn: '', port: '', device_id: '', listen: '',
     }).catch(() => { toastStore.show('Ошибка сохранения', 3000); });
     if (server.name !== updated.name) {
