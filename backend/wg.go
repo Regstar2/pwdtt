@@ -460,7 +460,7 @@ func cleanupWintunAdapter() {
 	}
 	// Also try to find and delete orphaned wintun adapters
 	// They show up as "Подключение по локальной сети" or similar
-	listCmd := exec.Command("cmd", "/c", "netsh interface show interface")
+	listCmd := exec.Command("netsh", "interface", "show", "interface")
 	hideWindow(listCmd)
 	out, err := listCmd.CombinedOutput()
 	if err == nil {
@@ -565,7 +565,7 @@ func runCmdWindows(name string, args ...string) error {
 }
 
 func defaultGatewayWindows() string {
-	cmd := exec.Command("cmd", "/c", "route print 0.0.0.0")
+	cmd := exec.Command("route", "print", "0.0.0.0")
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {

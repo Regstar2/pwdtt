@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -95,7 +94,7 @@ func runLegacyVKAuthHelper(ctx context.Context, action string) (vkLegacyToken, e
 	}
 
 	cmd := exec.CommandContext(ctx, executable, vkAuthHelperArg, action)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	hideWindow(cmd)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
