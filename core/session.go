@@ -182,6 +182,7 @@ func RunSession(
 		}
 	}
 
+	emitConnectionProgress("turn", "running", "Выделение TURN relay")
 	relay, err := tc.Allocate()
 	if err != nil {
 		if isAuthError(err) {
@@ -195,6 +196,7 @@ func RunSession(
 		}
 	}
 	defer relay.Close()
+	emitConnectionProgress("turn", "success", "TURN relay готов")
 
 	getStreamCache(cacheStreamID).errorCount.Store(0)
 
@@ -229,8 +231,10 @@ func RunSession(
 	var obfsCfg *ObfsConfig
 	var obfsWriteState *ObfsState
 	if useWrap {
+		emitConnectionProgress("wrap", "running", "Настройка WRAP")
 		obfsCfg = NewObfsConfig(tp.ObfsMode)
 		obfsWriteState = NewObfsState()
+		emitConnectionProgress("wrap", "success", "WRAP настроен")
 	}
 
 	stopRelay := context.AfterFunc(sessCtx, func() {
@@ -335,6 +339,7 @@ func RunSession(
 	defer dtlsConn.Close()
 
 	hctx, hcancel := context.WithTimeout(sessCtx, 20*time.Second)
+	emitConnectionProgress("dtls", "running", "Проверка DTLS")
 	log.Printf("[ВОРКЕР #%d] [DTLS] Рукопожатие (Handshake)...", sessionID)
 	err = dtlsConn.HandshakeContext(hctx)
 	hcancel()
@@ -343,18 +348,23 @@ func RunSession(
 	if err != nil {
 		errStr := strings.ToLower(err.Error())
 		if useWrap && (strings.Contains(errStr, "deadline") || strings.Contains(errStr, "timeout")) {
+			emitConnectionProgress("dtls", "warning", "DTLS timeout, повторяем подключение")
+			emitConnectionProgress("wrap", "warning", "WRAP не подтверждён")
 			return false, &SessionError{
 				Type:    SessionErrorWrapTimeout,
 				Address: turnAddr,
 				Err:     fmt.Errorf("DTLS timeout через WRAP: peer не ответил: %w", err),
 			}
 		}
+		emitConnectionProgress("dtls", "warning", "DTLS-сессия не установлена, повторяем")
 		return false, &SessionError{
 			Type:    SessionErrorAddressDead,
 			Address: turnAddr,
 			Err:     fmt.Errorf("DTLS хендшейк: %w", err),
 		}
 	}
+	emitConnectionProgress("dtls", "success", "DTLS-сессия установлена")
+	emitConnectionProgress("workers", "running", "Запуск рабочих потоков")
 	log.Printf("[ВОРКЕР #%d] [DTLS] Соединение установлено ✓", sessionID)
 
 	stats.ActiveConnections.Add(1)
@@ -397,6 +407,7 @@ func RunSession(
 		SendCh: make(chan []byte, workerSendBuf),
 	}
 	d.Register(slot)
+	emitConnectionProgress("workers", "success", "Рабочие потоки запущены")
 	defer d.Unregister(slot)
 
 	var proxyWg sync.WaitGroup

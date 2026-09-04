@@ -23,6 +23,21 @@ func (c *Core) emitReady() {
 	c.emit(Event{Type: EventEvent, Name: "ready"})
 }
 
+func (c *Core) emitConnectionProgress(stage, state, message string) {
+	data, _ := json.Marshal(map[string]string{
+		"stage":   stage,
+		"state":   state,
+		"message": message,
+	})
+	c.emit(Event{Type: EventEvent, Name: "connection_progress", Data: string(data)})
+}
+
+func emitConnectionProgress(stage, state, message string) {
+	if ac := getActiveCore(); ac != nil {
+		ac.emitConnectionProgress(stage, state, message)
+	}
+}
+
 // emitCaptchaRequest отправляет запрос на решение капчи.
 func (c *Core) emitCaptchaRequest(mode, redirectURI, sessionToken string) {
 	data, _ := json.Marshal(map[string]string{
