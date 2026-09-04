@@ -34,7 +34,7 @@ func enableIPv6LeakProtection(logf wgLogFunc) error {
 	ipv6LeakProtectionActive = false
 
 	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
-New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outbound IPv6 block used by PWDTT while an IPv4-only full tunnel is active.' -Direction Outbound -Action Block -Enabled True -Profile Any -RemoteAddress 'Any6' -ErrorAction Stop | Out-Null
+New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outbound IPv6 block used by PWDTT while an IPv4-only full tunnel is active.' -Direction Outbound -Action Block -Enabled True -Profile Any -RemoteAddress 'Internet6' -ErrorAction Stop | Out-Null
 `, ipv6LeakProtectionRuleName, ipv6LeakProtectionRuleDisplayName)
 
 	if _, err := runPowerShellWindows(script); err != nil {
@@ -43,7 +43,7 @@ New-NetFirewallRule -Name '%s' -DisplayName '%s' -Description 'Temporary outboun
 	}
 
 	ipv6LeakProtectionActive = true
-	logf("IPv6 leak protection включена: исходящий IPv6 временно заблокирован")
+	logf("IPv6 leak protection включена: прямой IPv6-доступ в интернет временно заблокирован")
 	return nil
 }
 
