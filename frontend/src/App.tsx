@@ -9,6 +9,8 @@ import { wdttLinkStore, parseWdttUrl } from './lib/utils/wdttLink';
 import { toastStore } from './lib/stores/toastStore';
 import { logStore } from './lib/stores/logStore';
 import { tunnelStore } from './lib/stores/tunnelStore';
+import { connectionStore } from './lib/stores/connectionStore';
+import type { ConnectionProgress, ConnectionStage, ConnectionStageState } from './lib/stores/connectionStore';
 import type { LogLevel } from './lib/stores/logStore';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import { CheckUpdate } from '../wailsjs/go/backend/App';
@@ -32,6 +34,28 @@ function useWdttPaste() {
   }, []);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+      return null;
+    }
+  }
+  return value && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+function parseProgress(value: unknown): ConnectionProgress | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const stage = String(record.stage ?? '') as ConnectionStage;
+  const state = String(record.state ?? '') as ConnectionStageState;
+  if (!['dns', 'vk', 'turn', 'wrap', 'dtls', 'workers', 'vpn'].includes(stage)) return null;
+  if (!['pending', 'running', 'success', 'warning', 'error'].includes(state)) return null;
+  return { stage, state, message: String(record.message ?? '') };
+}
+
 function useWailsEvents() {
   useEffect(() => {
     const offs = [
@@ -40,24 +64,45 @@ function useWailsEvents() {
       }),
       EventsOn('error', (msg: unknown) => {
         const s = String(msg ?? '');
+        connectionStore.setError(s);
         logStore.push('ERROR', s);
         toastStore.show(s, 5000);
       }),
+      EventsOn('stats', (payload: unknown) => {
+        const record = asRecord(payload);
+        if (!record) return;
+        connectionStore.stats(
+          Number(record.active ?? 0),
+          Number(record.bytes_up ?? 0),
+          Number(record.bytes_down ?? 0),
+        );
+      }),
+      EventsOn('connection_progress', (payload: unknown) => {
+        const progress = parseProgress(payload);
+        if (progress) connectionStore.progress(progress);
+      }),
       EventsOn('state_changed', (status: unknown) => {
         const s = String(status ?? '');
-        if (s === 'connected' || s === 'running') { tunnelStore.set('connected'); logStore.push('INFO', '✓ Туннель активен'); }
-        else if (s === 'connecting') { tunnelStore.set('connecting'); logStore.clear(); logStore.push('INFO', '⟳ Подключение...'); }
-        else if (s === 'stopped' || s === 'error' || s === 'disconnected') { tunnelStore.set('idle'); logStore.push('INFO', '— Отключено'); }
-      }),
-      EventsOn('event', (name: unknown) => {
-        if (name === 'wg_config') tunnelStore.set('connected');
+        if (s === 'connected' || s === 'running') {
+          tunnelStore.set('connected');
+          connectionStore.connected();
+          logStore.push('INFO', '✓ Туннель активен');
+        } else if (s === 'connecting') {
+          tunnelStore.set('connecting');
+          connectionStore.setTunnelState('connecting');
+          logStore.clear();
+          logStore.push('INFO', '⟳ Подключение...');
+        } else if (s === 'stopped' || s === 'error' || s === 'disconnected') {
+          tunnelStore.set('idle');
+          connectionStore.disconnected();
+          logStore.push('INFO', '— Отключено');
+        }
       }),
     ];
     return () => offs.forEach(off => off());
   }, []);
 }
 
-// Интервал повторной проверки: 5 минут
 const RETRY_MS = 5 * 60 * 1000;
 
 function useUpdateChecker() {
