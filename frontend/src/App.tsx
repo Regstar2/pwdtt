@@ -58,6 +58,38 @@ function parseProgress(value: unknown): ConnectionProgress | null {
 
 function useWailsEvents() {
   useEffect(() => {
+    const MIN_PROGRESS_VISIBLE_MS = 260;
+    const presentationQueue: Array<{ key: string; apply: () => void }> = [];
+    const seenPresentationKeys = new Set<string>();
+    let presentationTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearPresentationQueue = () => {
+      presentationQueue.length = 0;
+      seenPresentationKeys.clear();
+      if (presentationTimer) {
+        clearTimeout(presentationTimer);
+        presentationTimer = null;
+      }
+    };
+
+    const drainPresentationQueue = () => {
+      if (presentationTimer || presentationQueue.length === 0) return;
+      const item = presentationQueue.shift();
+      if (!item) return;
+      item.apply();
+      presentationTimer = setTimeout(() => {
+        presentationTimer = null;
+        drainPresentationQueue();
+      }, MIN_PROGRESS_VISIBLE_MS);
+    };
+
+    const enqueuePresentation = (key: string, apply: () => void) => {
+      if (seenPresentationKeys.has(key)) return;
+      seenPresentationKeys.add(key);
+      presentationQueue.push({ key, apply });
+      drainPresentationQueue();
+    };
+
     const offs = [
       EventsOn('log', (level: unknown, msg: unknown) => {
         logStore.push((level as LogLevel) ?? 'INFO', String(msg ?? ''));
@@ -79,27 +111,44 @@ function useWailsEvents() {
       }),
       EventsOn('connection_progress', (payload: unknown) => {
         const progress = parseProgress(payload);
-        if (progress) connectionStore.progress(progress);
+        if (!progress) return;
+
+        if (progress.state === 'warning' || progress.state === 'error') {
+          connectionStore.progress(progress);
+          return;
+        }
+
+        enqueuePresentation(
+          `${progress.stage}:${progress.state}`,
+          () => connectionStore.progress(progress),
+        );
       }),
       EventsOn('state_changed', (status: unknown) => {
         const s = String(status ?? '');
         if (s === 'connected' || s === 'running') {
           tunnelStore.set('connected');
-          connectionStore.connected();
-          logStore.push('INFO', '✓ Туннель активен');
+          enqueuePresentation('state:connected', () => {
+            connectionStore.connected();
+            logStore.push('INFO', '✓ Туннель активен');
+          });
         } else if (s === 'connecting') {
+          clearPresentationQueue();
           tunnelStore.set('connecting');
           connectionStore.setTunnelState('connecting');
           logStore.clear();
           logStore.push('INFO', '⟳ Подключение...');
         } else if (s === 'stopped' || s === 'error' || s === 'disconnected') {
+          clearPresentationQueue();
           tunnelStore.set('idle');
           connectionStore.disconnected();
           logStore.push('INFO', '— Отключено');
         }
       }),
     ];
-    return () => offs.forEach(off => off());
+    return () => {
+      clearPresentationQueue();
+      offs.forEach(off => off());
+    };
   }, []);
 }
 
