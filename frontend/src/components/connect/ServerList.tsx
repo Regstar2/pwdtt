@@ -6,6 +6,7 @@ export default function ServerList({
   servers,
   selected,
   obfsMode,
+  latencies,
   onSelect,
   onIconClick,
   onEdit,
@@ -13,6 +14,7 @@ export default function ServerList({
   servers: Server[];
   selected: Server | null;
   obfsMode: 'audio' | 'video';
+  latencies: Record<string, number | null | undefined>;
   onSelect: (server: Server) => void;
   onIconClick: (event: MouseEvent<HTMLButtonElement>, server: Server) => void;
   onEdit: (server: Server) => void;
@@ -25,6 +27,7 @@ export default function ServerList({
           server={server}
           selected={server.id === selected?.id}
           obfsMode={obfsMode}
+          latency={latencies[server.id]}
           onSelect={() => onSelect(server)}
           onIconClick={event => onIconClick(event, server)}
           onEdit={() => onEdit(server)}
