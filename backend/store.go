@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -68,16 +69,15 @@ func (s *Store) SaveSettings(settings AppSettings) error {
 // PROFILES — CRUD для серверов
 // ═══════════════════════════════════════════════════
 
-// sanitizeProfileName валидирует имя профиля — только буквы, цифры, дефисы, подчёркивания.
+// sanitizeProfileName оставляет Unicode-буквы/цифры и безопасные разделители имени файла.
 func sanitizeProfileName(name string) string {
-	var out []byte
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == ' ' {
-			out = append(out, []byte(string(r))...)
+	var out []rune
+	for _, r := range strings.TrimSpace(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == ' ' {
+			out = append(out, r)
 		}
 	}
-	return string(out)
+	return strings.TrimSpace(string(out))
 }
 
 // LoadProfile загружает профиль сервера по имени.
