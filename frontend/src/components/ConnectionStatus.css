@@ -45,7 +45,8 @@
 }
 
 .dock-link,
-.retry-btn {
+.retry-btn,
+.dismiss-btn {
   border: 0;
   font: inherit;
   cursor: pointer;
@@ -197,4 +198,23 @@
   .connection-metrics > span:last-child {
     grid-column: 1 / -1;
   }
+}
+
+.connection-dock__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dismiss-btn {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.dismiss-btn:hover {
+  background: var(--bg-2);
+  color: var(--text);
 }
