@@ -22,7 +22,7 @@ export interface ConnectionDiagnostics {
   internetReady: boolean;
 }
 
-const positive = /(ok|готов|актив|успеш|установ|connected|running|примен)/i;
+const positive = /(ok|готов|актив|успеш|установ|connected|running|примен|через\s+туннель|through\s+tunnel|защищ|заблокирован|blocked)/i;
 const negative = /(error|ошиб|fail|утеч|leak)/i;
 
 export function getLogSubsystem(message: string): LogSubsystem {
