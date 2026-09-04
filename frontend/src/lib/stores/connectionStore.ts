@@ -106,6 +106,7 @@ export const connectionStore = {
         ? progress.stage
         : state.stage,
       message: progress.message ?? state.message,
+      lastError: progress.state === 'error' ? (progress.message || 'Ошибка подключения') : state.lastError,
     });
   },
 
