@@ -375,6 +375,7 @@ func RunSession(
 		if confErr != nil {
 			errStr := confErr.Error()
 			if strings.Contains(errStr, "FATAL_AUTH") {
+				emitConnectionProgress("vpn", "error", "Сервер отклонил пароль или конфигурацию")
 				return false, &SessionError{
 					Type:    SessionErrorFatal,
 					Address: turnAddr,
