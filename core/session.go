@@ -59,6 +59,29 @@ func (e *SessionError) Error() string {
 
 func (e *SessionError) Unwrap() error { return e.Err }
 
+func classifyTurnAllocateError(err error) SessionErrorType {
+	if err == nil {
+		return SessionErrorFatal
+	}
+
+	errLower := strings.ToLower(err.Error())
+	addressDeadMarkers := []string{
+		"quota",
+		"486",
+		"unreachable",
+		"timeout",
+		"connection refused",
+		"no route to host",
+		"all retransmissions failed",
+	}
+	for _, marker := range addressDeadMarkers {
+		if strings.Contains(errLower, marker) {
+			return SessionErrorAddressDead
+		}
+	}
+	return SessionErrorFatal
+}
+
 // RunSession устанавливает TURN-сессию с указанным адресом.
 // В отличие от предыдущей версии, адрес передаётся явно, а не выбирается по индексу.
 func RunSession(
@@ -161,31 +184,12 @@ func RunSession(
 
 	relay, err := tc.Allocate()
 	if err != nil {
-		errStr := err.Error()
-		errLower := strings.ToLower(errStr)
-
-		// Проверяем на ошибки авторизации (кеш кредов)
 		if isAuthError(err) {
 			handleAuthError(cacheStreamID)
 		}
 
-		// Квота, unreachable, timeout — всё это "адрес мёртв"
-		if strings.Contains(errLower, "quota") ||
-			strings.Contains(errLower, "486") ||
-			strings.Contains(errLower, "unreachable") ||
-			strings.Contains(errLower, "timeout") ||
-			strings.Contains(errLower, "connection refused") ||
-			strings.Contains(errLower, "no route to host") {
-			return false, &SessionError{
-				Type:    SessionErrorAddressDead,
-				Address: turnAddr,
-				Err:     fmt.Errorf("TURN Allocate: %w", err),
-			}
-		}
-
-		// Остальные ошибки — фатальные
 		return false, &SessionError{
-			Type:    SessionErrorFatal,
+			Type:    classifyTurnAllocateError(err),
 			Address: turnAddr,
 			Err:     fmt.Errorf("TURN Allocate: %w", err),
 		}
@@ -342,7 +346,7 @@ func RunSession(
 			return false, &SessionError{
 				Type:    SessionErrorWrapTimeout,
 				Address: turnAddr,
-				Err:     fmt.Errorf("DTLS timeout, пароль/WRAP не подтверждён"),
+				Err:     fmt.Errorf("DTLS timeout через WRAP: peer не ответил: %w", err),
 			}
 		}
 		return false, &SessionError{

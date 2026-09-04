@@ -34,6 +34,10 @@ jobs:
       - name: Test backend
         run: go test ./backend
 
+      - name: Test core with race detector
+        working-directory: core
+        run: go test -race ./...
+
       - name: Verify WebView2 override
         run: test "$(go list -m -f '{{.Version}}' github.com/wailsapp/go-webview2)" = "v1.0.23"
 

@@ -174,10 +174,10 @@ func WorkerGroup(
 			defer wg.Done()
 
 			shouldGetConfig := getConfig
-			// Счётчик неудач на текущий адрес
+			baseObfsMode := tp.ObfsMode
 			addressAttempts := 0
-			// Храним текущий ObfsMode для этого воркера (может меняться при WRAP_TIMEOUT)
-			workerObfsMode := tp.ObfsMode
+			currentTurnAddr := ""
+			workerObfsMode := baseObfsMode
 
 			for {
 				if ctx.Err() != nil {
@@ -225,8 +225,12 @@ func WorkerGroup(
 					continue
 				}
 
-				// Берём первый доступный адрес
-				turnAddr := available[0]
+				turnAddr := selectTurnAddress(available, wid)
+				if turnAddr != currentTurnAddr {
+					currentTurnAddr = turnAddr
+					addressAttempts = 0
+					workerObfsMode = baseObfsMode
+				}
 
 				getConf := false
 				if shouldGetConfig && atomic.LoadInt32(&configSent) == 0 {
@@ -237,9 +241,9 @@ func WorkerGroup(
 					cc = configCh
 				}
 
-				// Передаём в RunSession конкретный адрес и креды
+				sessionParams := turnParamsForWorker(tp, workerObfsMode)
 				configDelivered, sessErr := RunSession(
-					ctx, tp, peer, d, localPort,
+					ctx, &sessionParams, peer, d, localPort,
 					getConf, cc, wid,
 					turnAddr,       // конкретный TURN-адрес
 					user,           // username из кредов (не меняется)
@@ -286,13 +290,7 @@ func WorkerGroup(
 						log.Printf("[ВОРКЕР #%d] WRAP_TIMEOUT на адресе %s, пробуем сменить обфускацию",
 							wid, sessErr.Address)
 
-						// Меняем режим обфускации
-						if workerObfsMode == "audio" {
-							workerObfsMode = "video"
-						} else {
-							workerObfsMode = "audio"
-						}
-						tp.ObfsMode = workerObfsMode
+						workerObfsMode = nextObfsMode(workerObfsMode)
 						log.Printf("[ВОРКЕР #%d] Режим обфускации изменён на %s", wid, workerObfsMode)
 
 						// Увеличиваем счётчик попыток на этом адресе
@@ -329,12 +327,8 @@ func WorkerGroup(
 					}
 				}
 
-				// Успех — сбрасываем счётчики
 				addressAttempts = 0
-				// Возвращаем ObfsMode к исходному (если он менялся)
-				if workerObfsMode != tp.ObfsMode {
-					workerObfsMode = tp.ObfsMode
-				}
+				workerObfsMode = baseObfsMode
 
 				// После успешной сессии — небольшая пауза перед следующим циклом
 				select {
@@ -352,6 +346,29 @@ func WorkerGroup(
 
 	wg.Wait()
 	log.Printf("[ГРУППА #%d] Все воркеры группы завершились.", groupID)
+}
+
+func selectTurnAddress(available []string, workerID int) string {
+	if len(available) == 0 {
+		return ""
+	}
+	if workerID < 1 {
+		workerID = 1
+	}
+	return available[(workerID-1)%len(available)]
+}
+
+func turnParamsForWorker(tp *TurnParams, obfsMode string) TurnParams {
+	local := *tp
+	local.ObfsMode = obfsMode
+	return local
+}
+
+func nextObfsMode(mode string) string {
+	if mode == "audio" {
+		return "video"
+	}
+	return "audio"
 }
 
 func ParseHashes(raw string) []string {

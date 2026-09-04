@@ -11,13 +11,15 @@ import (
 
 // Bridge — мост между App.go и ядром.
 type Bridge struct {
-	ctx     context.Context
-	store   *Store
-	onEvent func(name string, args ...any)
-	mu      sync.Mutex
-	core    *core.Core
-	running bool
-	logFile *LogFile // полный лог сессии
+	ctx                context.Context
+	store              *Store
+	onEvent            func(name string, args ...any)
+	mu                 sync.Mutex
+	core               *core.Core
+	running            bool
+	wgApplied          bool
+	connectedPublished bool
+	logFile            *LogFile // полный лог сессии
 }
 
 func NewBridge(ctx context.Context, store *Store, onEvent func(string, ...any)) *Bridge {
@@ -34,12 +36,16 @@ func (b *Bridge) Connect(params ConnectParams) error {
 	}
 	// Сразу помечаем как running чтобы заблокировать параллельные вызовы
 	b.running = true
+	b.wgApplied = false
+	b.connectedPublished = false
 	b.mu.Unlock()
 
 	// resetRunning сбрасывает флаг при любой ошибке до запуска forwardEvents
 	resetRunning := func() {
 		b.mu.Lock()
 		b.running = false
+		b.wgApplied = false
+		b.connectedPublished = false
 		b.mu.Unlock()
 	}
 
@@ -81,6 +87,8 @@ func (b *Bridge) Connect(params ConnectParams) error {
 	b.mu.Lock()
 	b.core = c
 	b.running = true
+	b.wgApplied = false
+	b.connectedPublished = false
 	b.logFile = b.store.OpenLogFile()
 	b.mu.Unlock()
 
@@ -117,6 +125,10 @@ func (b *Bridge) SendCaptchaResult(token string) {
 	}
 }
 
+func tunnelTrafficConfirmed(active int32, bytesUp, bytesDown int64) bool {
+	return active > 0 && bytesUp > 0 && bytesDown > 0
+}
+
 // forwardEvents читает канал событий ядра и пробрасывает в Wails.
 func (b *Bridge) forwardEvents(events <-chan core.Event) {
 	for ev := range events {
@@ -143,6 +155,17 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 				"bytes_down": ev.BytesDown,
 			})
 
+			b.mu.Lock()
+			publishConnected := b.wgApplied && !b.connectedPublished && tunnelTrafficConfirmed(ev.Active, ev.BytesUp, ev.BytesDown)
+			if publishConnected {
+				b.connectedPublished = true
+			}
+			b.mu.Unlock()
+			if publishConnected {
+				b.onEvent("log", "INFO", "[WG] Двусторонний трафик подтверждён, туннель активен")
+				b.onEvent("state_changed", "connected")
+			}
+
 		case core.EventError:
 			b.onEvent("error", ev.Message)
 
@@ -167,13 +190,15 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 						go c.Stop()
 					}
 				} else {
-					b.onEvent("log", "INFO", "[WG] Конфиг применён, туннель активен")
-					b.onEvent("state_changed", "connected")
+					b.mu.Lock()
+					b.wgApplied = true
+					b.mu.Unlock()
+					b.onEvent("log", "INFO", "[WG] Конфиг применён, ожидаем подтверждения двустороннего трафика")
 				}
 			case "captcha_required":
 				b.onEvent("captcha_required", ev.Data)
 			case "ready":
-				b.onEvent("log", "INFO", "[ЯДРО] Туннель готов к работе")
+				b.onEvent("log", "INFO", "[ЯДРО] Рабочая DTLS-сессия установлена")
 			default:
 				b.onEvent("event", ev.Name)
 			}
@@ -187,6 +212,8 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 
 	b.mu.Lock()
 	b.running = false
+	b.wgApplied = false
+	b.connectedPublished = false
 	b.core = nil
 	if b.logFile != nil {
 		b.logFile.Close()
