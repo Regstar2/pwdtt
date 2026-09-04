@@ -51,9 +51,9 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Test VK hash frontend
+      - name: Test frontend
         working-directory: frontend
-        run: npm test -- src/__tests__/vkHash.test.ts
+        run: npm test
 
       - name: Build Linux
         run: wails build -platform linux/amd64 -tags webkit2_41 -o pwdtt-linux-amd64

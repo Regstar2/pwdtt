@@ -70,6 +70,10 @@ export function ListProfiles() {
   return window['go']['backend']['App']['ListProfiles']();
 }
 
+export function MeasureLatency(arg1) {
+  return window['go']['backend']['App']['MeasureLatency'](arg1);
+}
+
 export function SaveProfile(arg1, arg2) {
   return window['go']['backend']['App']['SaveProfile'](arg1, arg2);
 }

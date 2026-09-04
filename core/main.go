@@ -175,6 +175,7 @@ func (c *Core) start() error {
 	}
 
 	// Резолв пира
+	c.emitConnectionProgress("dns", "running", "Разрешение адреса сервера")
 	cleanPeerAddr := strings.TrimSpace(c.cfg.PeerAddr)
 	var peer *net.UDPAddr
 	var err error
@@ -186,9 +187,11 @@ func (c *Core) start() error {
 		time.Sleep(1 * time.Second)
 	}
 	if err != nil {
+		c.emitConnectionProgress("dns", "error", "Не удалось разрешить адрес сервера")
 		cancel()
 		return fmt.Errorf("resolve peer: %w", err)
 	}
+	c.emitConnectionProgress("dns", "success", "Адрес сервера разрешён")
 
 	// WRAP ключ
 	wrapKey, err := deriveWrapKey(c.cfg.Password)
@@ -289,6 +292,7 @@ func (c *Core) start() error {
 
 	// Старт
 	c.emit(Event{Type: EventState, Status: "connecting"})
+	c.emitConnectionProgress("vk", "running", "Получение VK-кредов")
 
 	go func() {
 		defer close(c.events)

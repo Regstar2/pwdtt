@@ -163,6 +163,9 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			b.mu.Unlock()
 			if publishConnected {
 				b.onEvent("log", "INFO", "[WG] Двусторонний трафик подтверждён, туннель активен")
+				b.onEvent("connection_progress", map[string]any{
+					"stage": "vpn", "state": "success", "message": "VPN-туннель активен",
+				})
 				b.onEvent("state_changed", "connected")
 			}
 
@@ -171,7 +174,12 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 
 		case core.EventEvent:
 			switch ev.Name {
+			case "connection_progress":
+				b.onEvent("connection_progress", ev.Data)
 			case "wg_config":
+				b.onEvent("connection_progress", map[string]any{
+					"stage": "vpn", "state": "running", "message": "Настройка VPN-маршрутов",
+				})
 				b.onEvent("log", "INFO", "[WG] Применение конфига...")
 				wgLogf := func(msg string) {
 					b.onEvent("log", "INFO", "[WG] "+msg)
@@ -182,6 +190,9 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 					b.mu.Unlock()
 				}
 				if err := wg.Apply(ev.Data, ev.TurnIPs, wgLogf); err != nil {
+					b.onEvent("connection_progress", map[string]any{
+						"stage": "vpn", "state": "error", "message": "Не удалось настроить VPN",
+					})
 					b.onEvent("error", fmt.Sprintf("[WG] Ошибка: %v", err))
 					b.mu.Lock()
 					c := b.core

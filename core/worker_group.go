@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"strings"
@@ -79,6 +80,9 @@ func WorkerGroup(
 	if len(shortHash) > 8 {
 		shortHash = shortHash[:8]
 	}
+	if groupID == 1 {
+		emitConnectionProgress("vk", "running", "Получение VK-кредов")
+	}
 	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
 
 	credStreamID := groupID * 100
@@ -87,10 +91,20 @@ func WorkerGroup(
 	if err == nil {
 		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
 	} else {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return
+		}
+		if groupID == 1 {
+			emitConnectionProgress("vk", "error", "Не удалось получить VK-креды")
+		}
 		log.Printf("[ГРУППА #%d] Ошибка кредов: %v", groupID, err)
 		return
 	}
 
+	if groupID == 1 {
+		emitConnectionProgress("vk", "success", "VK-креды получены")
+		emitConnectionProgress("turn", "running", "Подключение к TURN")
+	}
 	log.Printf("[ГРУППА #%d] Креды OK, TURN: %v, %d воркеров", groupID, creds.TurnURLs, len(workerIDs))
 
 	// Отправляем TURN IP для exclude routes (только первая группа)
@@ -272,6 +286,9 @@ func WorkerGroup(
 					switch sessErr.Type {
 
 					case SessionErrorAddressDead:
+						if groupID == 1 {
+							emitConnectionProgress("turn", "warning", "TURN-адрес недоступен, пробуем следующий")
+						}
 						// Адрес мёртв — баним и пробуем следующий
 						if sessErr.Address != "" {
 							GlobalBlacklist.Ban(sessErr.Address)
@@ -286,6 +303,9 @@ func WorkerGroup(
 						continue
 
 					case SessionErrorWrapTimeout:
+						if groupID == 1 {
+							emitConnectionProgress("wrap", "warning", "WRAP/DTLS не подтверждён, меняем режим")
+						}
 						// DTLS-таймаут — пробуем сменить обфускацию
 						log.Printf("[ВОРКЕР #%d] WRAP_TIMEOUT на адресе %s, пробуем сменить обфускацию",
 							wid, sessErr.Address)
