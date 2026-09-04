@@ -4,7 +4,9 @@ import { IconCircleHalf2, IconHash, IconEye, IconEyeOff, IconX } from '@tabler/i
 import type { Server } from '../lib/types';
 import Hash from './Hash';
 import { SaveProfile, DeleteProfile } from '../../wailsjs/go/backend/App';
+import { backend } from '../../wailsjs/go/models';
 import { toastStore } from '../lib/stores/toastStore';
+import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
 
 interface Props {
   server: Server;
@@ -51,13 +53,15 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
       hashes,
       power,
     };
+    const hashPolicy = getServerVKHashPolicy(updated);
     // Сначала сохраняем новый, потом удаляем старый
-    await SaveProfile(updated.name, {
+    await SaveProfile(updated.name, backend.ProfileData.createFrom({
       peer: updated.host,
       password: updated.password,
       hashes,
+      hash_policy: { mode: hashPolicy.mode, autoCheck: hashPolicy.autoCheck, autoReplace: hashPolicy.autoReplace },
       turn: '', port: '', device_id: '', listen: '',
-    }).catch(() => { toastStore.show('Ошибка сохранения', 3000); });
+    })).catch(() => { toastStore.show('Ошибка сохранения', 3000); });
     if (server.name !== updated.name) {
       await DeleteProfile(server.name).catch(() => { toastStore.show('Ошибка удаления', 3000); });
     }

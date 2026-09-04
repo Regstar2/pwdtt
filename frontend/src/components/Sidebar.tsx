@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   IconPlugConnected,
   IconTerminal2,
+  IconHash,
   IconSettings2,
   IconSun,
   IconMoon,
@@ -11,6 +12,7 @@ import { themeStore } from '../lib/stores/themeStore';
 
 const NAV = [
   { path: '/', icon: <IconPlugConnected stroke={2} size={22} /> },
+  { path: '/hashes', icon: <IconHash stroke={2} size={22} /> },
   { path: '/logs', icon: <IconTerminal2 stroke={2} size={22} /> },
 ];
 

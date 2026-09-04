@@ -11,8 +11,11 @@ import { themeStore } from '../lib/stores/themeStore';
 import { toastStore } from '../lib/stores/toastStore';
 import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
+import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { MeasureLatency, SaveProfile } from '../../wailsjs/go/backend/App';
-import type { Server, TunnelState } from '../lib/types';
+import { backend } from '../../wailsjs/go/models';
+import type { Server, TunnelState, VKHashMode } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles } from '../../wailsjs/go/backend/App';
 import ConnectionHero from '../components/connect/ConnectionHero';
 import ConnectionProgress from '../components/connect/ConnectionProgress';
@@ -90,6 +93,35 @@ export default function Connect() {
   useEffect(() => connectionStore.subscribe(setConnection), []);
   useEffect(() => themeStore.subscribe(setTheme), []);
 
+  useEffect(() => EventsOn('vk-hash-replaced', (payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as Record<string, unknown>;
+    const profileName = String(data.profileName ?? '');
+    const oldHash = String(data.oldHash ?? '');
+    const newHash = String(data.newHash ?? '');
+    const scope = String(data.scope ?? '');
+    if (!profileName || !oldHash || !newHash || !scope.includes('local')) return;
+
+    const target = serverStore.getAll().find(server => server.name === profileName);
+    if (!target) return;
+    const nextHashes = [...(target.hashes ?? ['', '', '', ''])] as [string, string, string, string];
+    let changed = false;
+    for (let i = 0; i < nextHashes.length; i++) {
+      if (nextHashes[i].trim() === oldHash) {
+        nextHashes[i] = newHash;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    const updated = { ...target, hashes: nextHashes };
+    serverStore.update(updated);
+    const all = serverStore.getAll();
+    setServers(all);
+    setSelected(previous => previous?.id === updated.id ? { ...updated } : previous);
+    toastStore.show(`VK-хеш профиля «${profileName}» автоматически заменён`, 4000);
+  }), []);
+
   useEffect(() => {
     selectedRef.current = selected;
     serverStore.setLastSelectedId(selected?.id ?? null);
@@ -149,7 +181,15 @@ export default function Connect() {
           profile.hashes?.[2] ?? '',
           profile.hashes?.[3] ?? '',
         ];
-        serverStore.add({ name, host, password: profile.password ?? '', hashes });
+        serverStore.add({
+          name,
+          host,
+          password: profile.password ?? '',
+          hashes,
+          hashMode: (profile.hash_policy?.mode as VKHashMode | undefined) ?? 'local',
+          hashAutoCheck: profile.hash_policy?.autoCheck ?? true,
+          hashAutoReplace: profile.hash_policy?.autoReplace ?? false,
+        });
         changed = true;
       }
 
@@ -176,7 +216,7 @@ export default function Connect() {
       while (existingNames.includes(`${autoName} ${counter}`)) counter++;
       const name = `${autoName} ${counter}`;
 
-      await SaveProfile(name, {
+      await SaveProfile(name, backend.ProfileData.createFrom({
         peer: consumed.host,
         password: consumed.password,
         hashes: hashes as unknown as string[],
@@ -184,7 +224,7 @@ export default function Connect() {
         port: consumed.port || '',
         device_id: '',
         listen: '',
-      });
+      }));
 
       const server = serverStore.add({
         name,
@@ -209,13 +249,14 @@ export default function Connect() {
     if (!current || tunnelStore.get() !== 'idle' || connectingRef.current) return;
 
     const hashes = (current.hashes ?? []).filter(hash => hash.trim());
-    if (hashes.length === 0) {
-      toastStore.show('Добавьте хеши в профиле сервера');
+    const hashPolicy = getServerVKHashPolicy(current);
+    if (hashPolicy.mode === 'local' && hashes.length === 0) {
+      toastStore.show('Добавьте локальные VK-хеши или включите общий пул');
       return;
     }
 
     connectingRef.current = true;
-    const workers = requestedWorkers(current, hashes.length);
+    const workers = requestedWorkers(current, Math.max(hashes.length, 1));
     connectionStore.begin(workers);
     tunnelStore.set('connecting');
     logStore.clear();
@@ -229,6 +270,10 @@ export default function Connect() {
         workers,
         captchaMode: 'auto',
         obfsMode: settingsStore.get().obfsMode || 'audio',
+        profileName: current.name,
+        hashMode: hashPolicy.mode,
+        hashAutoCheck: hashPolicy.autoCheck,
+        hashAutoReplace: hashPolicy.autoReplace,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

@@ -1,3 +1,5 @@
+export type VKHashMode = 'local' | 'local+pool' | 'pool';
+
 export interface Server {
   id: string;
   name: string;
@@ -8,6 +10,9 @@ export interface Server {
   icon?: string;
   hashes?: [string, string, string, string];
   power?: number;
+  hashMode?: VKHashMode;
+  hashAutoCheck?: boolean;
+  hashAutoReplace?: boolean;
 }
 
 export interface AppSettings {

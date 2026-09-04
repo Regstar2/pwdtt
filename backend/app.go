@@ -65,6 +65,11 @@ func (a *App) Shutdown(ctx context.Context) {
 // ═══════════════════════════════════════════════════
 
 func (a *App) Connect(params ConnectParams) error {
+	hashes, err := a.prepareVKHashes(params)
+	if err != nil {
+		return err
+	}
+	params.Hashes = hashes
 	return a.bridge.Connect(params)
 }
 
