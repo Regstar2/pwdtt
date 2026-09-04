@@ -14,6 +14,7 @@ import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { MeasureLatency, SaveProfile } from '../../wailsjs/go/backend/App';
+import { backend } from '../../wailsjs/go/models';
 import type { Server, TunnelState, VKHashMode } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles } from '../../wailsjs/go/backend/App';
 import ConnectionHero from '../components/connect/ConnectionHero';
@@ -215,7 +216,7 @@ export default function Connect() {
       while (existingNames.includes(`${autoName} ${counter}`)) counter++;
       const name = `${autoName} ${counter}`;
 
-      await SaveProfile(name, {
+      await SaveProfile(name, backend.ProfileData.createFrom({
         peer: consumed.host,
         password: consumed.password,
         hashes: hashes as unknown as string[],
@@ -223,7 +224,7 @@ export default function Connect() {
         port: consumed.port || '',
         device_id: '',
         listen: '',
-      });
+      }));
 
       const server = serverStore.add({
         name,
