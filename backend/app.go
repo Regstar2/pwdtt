@@ -3,7 +3,12 @@ package backend
 import (
 	"context"
 	"errors"
+	"net"
+	"os/exec"
+	"runtime"
+	"strings"
 	"sync"
+	"time"
 
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -73,6 +78,59 @@ func (a *App) IsRunning() bool {
 
 func (a *App) GetVersion() string {
 	return Version
+}
+
+func latencyHost(peerAddr string) string {
+	value := strings.TrimSpace(peerAddr)
+	if value == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		return strings.Trim(host, "[]")
+	}
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		return strings.Trim(value, "[]")
+	}
+	return value
+}
+
+func latencyPingArgs(host string) []string {
+	switch runtime.GOOS {
+	case "windows":
+		return []string{"-n", "1", "-w", "1200", host}
+	case "darwin":
+		return []string{"-c", "1", "-W", "1200", host}
+	default:
+		return []string{"-c", "1", "-W", "1", host}
+	}
+}
+
+// MeasureLatency измеряет ICMP-задержку до peer-адреса сервера.
+// Возвращает -1, если сервер не ответил или ping недоступен.
+func (a *App) MeasureLatency(peerAddr string) int {
+	host := latencyHost(peerAddr)
+	if host == "" {
+		return -1
+	}
+
+	parent := a.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, "ping", latencyPingArgs(host)...)
+	if err := cmd.Run(); err != nil {
+		return -1
+	}
+
+	ms := time.Since(start).Milliseconds()
+	if ms < 1 {
+		ms = 1
+	}
+	return int(ms)
 }
 
 // ═══════════════════════════════════════════════════
