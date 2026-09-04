@@ -43,16 +43,3 @@ jobs:
             dist/pwdtt-linux-amd64
             dist/pwdtt-windows-amd64.exe
             dist/PWDTT-macos.zip
-          body: |
-            ## PWDTT v1.5.1
-
-
-            - Парсинг ссылок изза чего не работали старвые сервера.
-            - Добавлено информация о подключении текущий ip и задержка. 
-            - Реализация WG, AutoStart, Update  для MacOS (by @alextixru)
-            
-
-            **Platforms:**
-            - Linux x86_64
-            - Windows x86_64
-            - macOS (Universal: Intel + Apple Silicon)
