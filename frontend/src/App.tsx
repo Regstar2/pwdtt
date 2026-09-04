@@ -132,7 +132,6 @@ function useWailsEvents() {
             logStore.push('INFO', '✓ Туннель активен');
           });
         } else if (s === 'connecting') {
-          clearPresentationQueue();
           tunnelStore.set('connecting');
           connectionStore.setTunnelState('connecting');
           logStore.clear();
