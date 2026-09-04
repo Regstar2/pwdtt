@@ -1,5 +1,5 @@
 import {
-  IconArrowDown, IconArrowUp, IconFileText, IconGlobe, IconLockFilled, IconServer, IconWifi,
+  IconArrowDown, IconArrowUp, IconFileText, IconLockFilled, IconServer, IconWifi,
 } from '@tabler/icons-react';
 import type { Server } from '../../lib/types';
 import type { ConnectionDashboardState } from '../../lib/stores/connectionStore';
@@ -26,11 +26,13 @@ export default function ConnectionStats({
   return (
     <>
       <section className="connection-stats">
-        <div className="stat-item">
-          <IconWifi size={20} stroke={1.8} />
-          <span>Пинг</span>
-          <strong>{selected?.ping != null ? `${selected.ping} мс` : '—'}</strong>
-        </div>
+        {selected?.ping != null && (
+          <div className="stat-item">
+            <IconWifi size={20} stroke={1.8} />
+            <span>До сервера</span>
+            <strong>{selected.ping} мс</strong>
+          </div>
+        )}
         <div className="stat-item">
           <IconServer size={20} stroke={1.8} />
           <span>Активных воркеров</span>
@@ -45,11 +47,6 @@ export default function ConnectionStats({
           <IconArrowUp size={20} stroke={1.8} />
           <span>Отдача</span>
           <strong>{formatBytes(connection.bytesUp)}</strong>
-        </div>
-        <div className="stat-item">
-          <IconGlobe size={20} stroke={1.8} />
-          <span>IPv6</span>
-          <strong>{connected ? 'Заблокирован' : '—'}</strong>
         </div>
       </section>
 
