@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"strings"
@@ -90,6 +91,9 @@ func WorkerGroup(
 	if err == nil {
 		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
 	} else {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return
+		}
 		if groupID == 1 {
 			emitConnectionProgress("vk", "error", "Не удалось получить VK-креды")
 		}
