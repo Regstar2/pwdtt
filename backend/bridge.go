@@ -11,10 +11,10 @@ import (
 
 // Bridge — мост между App.go и ядром.
 type Bridge struct {
-	ctx     context.Context
-	store   *Store
-	onEvent func(name string, args ...any)
-	mu      sync.Mutex
+	ctx                context.Context
+	store              *Store
+	onEvent            func(name string, args ...any)
+	mu                 sync.Mutex
 	core               *core.Core
 	running            bool
 	wgApplied          bool
