@@ -108,6 +108,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Parse release PowerShell scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($path in @(
+            'scripts/sign-windows.ps1',
+            'scripts/verify-authenticode.ps1',
+            'scripts/test-windows-installer.ps1',
+            'scripts/release.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path -LiteralPath $path).Path,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              foreach ($error in $errors) {
+                Write-Error "${path}: $($error.Message)"
+              }
+            }
+          }
+          if ($failed) {
+            throw 'PowerShell parser smoke failed.'
+          }
+
       - name: Test checksum and release-note generation
         shell: pwsh
         run: |
@@ -256,7 +284,6 @@ jobs:
           New-Item -ItemType Directory -Path $work -Force | Out-Null
           $target = Join-Path $work 'pwdtt-signing-smoke.exe'
           $pfx = Join-Path $work 'test.pfx'
-          $cer = Join-Path $work 'test.cer'
           Copy-Item -LiteralPath 'dist\pwdtt-windows-amd64.exe' -Destination $target
           $passwordText = [guid]::NewGuid().ToString('N')
           $password = ConvertTo-SecureString -String $passwordText -AsPlainText -Force
@@ -264,23 +291,17 @@ jobs:
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=PWDTT CI Authenticode Test' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy Exportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(1)
           try {
             Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $password | Out-Null
-            Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-            Write-Host 'Trusting ephemeral certificate in CurrentUser\\Root...'
-            Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
             $thumbprint = $cert.Thumbprint
             $pfxBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
             Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -Force
             Write-Host 'Calling signing helper...'
             ./scripts/sign-windows.ps1 -Path $target -PfxBase64 $pfxBase64 -PfxPassword $passwordText -TimestampUrl ''
             Write-Host 'Verifying Authenticode signature...'
-            ./scripts/verify-authenticode.ps1 -Path $target
+            ./scripts/verify-authenticode.ps1 -Path $target -AllowUntrustedSigner -ExpectedThumbprint $thumbprint
           }
           finally {
             if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)")) {
               Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force
-            }
-            if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)")) {
-              Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force
             }
             Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
           }
