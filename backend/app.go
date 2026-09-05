@@ -24,7 +24,9 @@ type App struct {
 	vkClient *vkAPIClient
 	vkMu     sync.Mutex
 	vkCancel context.CancelFunc
-	hashOps  *vkHashOperationState
+	hashOps       *vkHashOperationState
+	connectMu     sync.Mutex
+	connectCancel context.CancelFunc
 }
 
 // NewApp создаёт App. Вызывается из main() до wails.Run().
@@ -72,6 +74,21 @@ func (a *App) Connect(params ConnectParams) error {
 	}
 	a.hashOps.cancelInteractive()
 
+	a.connectMu.Lock()
+	if a.connectCancel != nil {
+		a.connectMu.Unlock()
+		return errors.New("подключение уже выполняется")
+	}
+	connectCtx, cancelConnect := context.WithCancel(a.appContext())
+	a.connectCancel = cancelConnect
+	a.connectMu.Unlock()
+	defer func() {
+		cancelConnect()
+		a.connectMu.Lock()
+		a.connectCancel = nil
+		a.connectMu.Unlock()
+	}()
+
 	operationID := newOperationID("connect")
 	started := time.Now()
 	a.emitDiagnostic(diagnosticEvent{
@@ -79,7 +96,7 @@ func (a *App) Connect(params ConnectParams) error {
 		Action: "start", Server: params.ProfileName,
 	})
 
-	hashes, err := a.prepareVKHashes(params, operationID)
+	hashes, err := a.prepareVKHashes(connectCtx, params, operationID)
 	if err != nil {
 		a.emitDiagnostic(diagnosticEvent{
 			Level: "ERROR", Subsystem: "CONNECT", OperationID: operationID,
@@ -102,7 +119,15 @@ func (a *App) Connect(params ConnectParams) error {
 }
 
 func (a *App) Disconnect() {
-	a.bridge.Disconnect()
+	a.connectMu.Lock()
+	cancel := a.connectCancel
+	a.connectMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if a.bridge != nil {
+		a.bridge.Disconnect()
+	}
 }
 
 func (a *App) IsRunning() bool {
