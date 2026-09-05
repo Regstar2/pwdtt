@@ -17,7 +17,6 @@ type vkHashProbeCall struct {
 type vkHashOperationState struct {
 	mu            sync.Mutex
 	inFlight      map[string]*vkHashProbeCall
-	probeSem      chan struct{}
 	bulkCancel    context.CancelFunc
 	bulkOperation string
 	manualCancels map[string]context.CancelFunc
@@ -26,7 +25,6 @@ type vkHashOperationState struct {
 func newVKHashOperationState() *vkHashOperationState {
 	return &vkHashOperationState{
 		inFlight:      make(map[string]*vkHashProbeCall),
-		probeSem:      make(chan struct{}, vkHashBulkConcurrency),
 		manualCancels: make(map[string]context.CancelFunc),
 	}
 }
@@ -49,6 +47,9 @@ func (s *vkHashOperationState) run(
 		s.mu.Unlock()
 		select {
 		case <-existing.done:
+			if existing.err != nil && errors.Is(existing.err, context.Canceled) && ctx.Err() == nil {
+				return s.run(ctx, key, probe)
+			}
 			return existing.result, existing.err
 		case <-ctx.Done():
 			return VKHashCheckResult{}, ctx.Err()
@@ -65,11 +66,8 @@ func (s *vkHashOperationState) run(
 		s.mu.Unlock()
 	}()
 
-	select {
-	case s.probeSem <- struct{}{}:
-		defer func() { <-s.probeSem }()
-	case <-ctx.Done():
-		call.err = ctx.Err()
+	if err := ctx.Err(); err != nil {
+		call.err = err
 		return VKHashCheckResult{}, call.err
 	}
 
