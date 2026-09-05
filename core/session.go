@@ -182,9 +182,12 @@ func RunSession(
 		}
 	}
 
+	turnStarted := time.Now()
 	emitConnectionProgress("turn", "running", "Выделение TURN relay")
+	traceSession(tp, sessionID, "turn", "running", "TURN Allocate", 0)
 	relay, err := tc.Allocate()
 	if err != nil {
+		traceSession(tp, sessionID, "turn", "error", "TURN Allocate failed", time.Since(turnStarted))
 		if isAuthError(err) {
 			handleAuthError(cacheStreamID)
 		}
@@ -197,6 +200,7 @@ func RunSession(
 	}
 	defer relay.Close()
 	emitConnectionProgress("turn", "success", "TURN relay готов")
+	traceSession(tp, sessionID, "turn", "success", "TURN relay ready", time.Since(turnStarted))
 
 	getStreamCache(cacheStreamID).errorCount.Store(0)
 
@@ -231,10 +235,13 @@ func RunSession(
 	var obfsCfg *ObfsConfig
 	var obfsWriteState *ObfsState
 	if useWrap {
+		wrapStarted := time.Now()
 		emitConnectionProgress("wrap", "running", "Настройка WRAP")
+		traceSession(tp, sessionID, "wrap", "running", "Configure WRAP", 0)
 		obfsCfg = NewObfsConfig(tp.ObfsMode)
 		obfsWriteState = NewObfsState()
 		emitConnectionProgress("wrap", "success", "WRAP настроен")
+		traceSession(tp, sessionID, "wrap", "success", "WRAP configured", time.Since(wrapStarted))
 	}
 
 	stopRelay := context.AfterFunc(sessCtx, func() {
@@ -339,7 +346,9 @@ func RunSession(
 	defer dtlsConn.Close()
 
 	hctx, hcancel := context.WithTimeout(sessCtx, 20*time.Second)
+	dtlsStarted := time.Now()
 	emitConnectionProgress("dtls", "running", "Проверка DTLS")
+	traceSession(tp, sessionID, "dtls", "running", "DTLS handshake", 0)
 	log.Printf("[ВОРКЕР #%d] [DTLS] Рукопожатие (Handshake)...", sessionID)
 	err = dtlsConn.HandshakeContext(hctx)
 	hcancel()
@@ -348,6 +357,7 @@ func RunSession(
 	if err != nil {
 		errStr := strings.ToLower(err.Error())
 		if useWrap && (strings.Contains(errStr, "deadline") || strings.Contains(errStr, "timeout")) {
+			traceSession(tp, sessionID, "dtls", "error", "DTLS handshake timed out", time.Since(dtlsStarted))
 			emitConnectionProgress("dtls", "warning", "DTLS timeout, повторяем подключение")
 			emitConnectionProgress("wrap", "warning", "WRAP не подтверждён")
 			return false, &SessionError{
@@ -356,6 +366,7 @@ func RunSession(
 				Err:     fmt.Errorf("DTLS timeout через WRAP: peer не ответил: %w", err),
 			}
 		}
+		traceSession(tp, sessionID, "dtls", "error", "DTLS handshake failed", time.Since(dtlsStarted))
 		emitConnectionProgress("dtls", "warning", "DTLS-сессия не установлена, повторяем")
 		return false, &SessionError{
 			Type:    SessionErrorAddressDead,
@@ -364,6 +375,7 @@ func RunSession(
 		}
 	}
 	emitConnectionProgress("dtls", "success", "DTLS-сессия установлена")
+	traceSession(tp, sessionID, "dtls", "success", "DTLS session established", time.Since(dtlsStarted))
 	emitConnectionProgress("workers", "running", "Запуск рабочих потоков")
 	log.Printf("[ВОРКЕР #%d] [DTLS] Соединение установлено ✓", sessionID)
 
@@ -501,4 +513,11 @@ func RunSession(
 	_ = pipeB.Close()
 	log.Printf("[СЕССИЯ #%d] Завершена", sessionID)
 	return configDelivered, nil
+}
+
+func traceSession(tp *TurnParams, sessionID int, stage, state, message string, duration time.Duration) {
+	if tp == nil || tp.Trace == nil {
+		return
+	}
+	tp.Trace(sessionID, stage, state, message, duration)
 }
