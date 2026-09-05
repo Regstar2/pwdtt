@@ -25,6 +25,11 @@ jobs:
           sudo apt-get install -y libayatana-appindicator3-dev pkg-config gcc libgtk-3-dev libwebkit2gtk-4.1-dev
 
 
+      - name: Prepare embedded frontend assets
+        run: |
+          mkdir -p frontend/dist
+          printf '<!doctype html><title>ci</title>\n' > frontend/dist/index.html
+
       - name: Test root module
         run: go test -count=1 ./...
 
