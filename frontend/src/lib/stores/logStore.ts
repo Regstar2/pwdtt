@@ -35,7 +35,7 @@ export const logStore = {
   push: (level: LogLevel, message: string) => {
     const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-    if (level === 'ERROR') {
+    if (level === 'ERROR' || level === 'DEBUG') {
       entries = [...entries, { id: seq++, level, message, time, count: 1 }];
       if (entries.length > MAX_ENTRIES) entries = entries.slice(-MAX_ENTRIES);
       notify();
