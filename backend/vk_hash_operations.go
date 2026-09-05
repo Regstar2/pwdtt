@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-const vkHashBulkConcurrency = 2
+const vkHashBulkConcurrency = 1
 
 type vkHashProbeCall struct {
 	done   chan struct{}
