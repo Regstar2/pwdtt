@@ -47,7 +47,10 @@ export const logStore = {
       const idx = entries.findIndex(e => e.level === level && extractTag(e.message) === tag);
       if (idx !== -1) {
         const found = entries[idx];
-        entries = [...entries.slice(0, idx), { ...found, message, time, count: found.count + 1 }, ...entries.slice(idx + 1)];
+        const updated = { ...found, message, time, count: found.count + 1 };
+        // Grouped entry represents the latest event for this tag, so keep it
+        // at the end of the timeline instead of changing a timestamp in-place.
+        entries = [...entries.slice(0, idx), ...entries.slice(idx + 1), updated];
         notify();
         return;
       }
