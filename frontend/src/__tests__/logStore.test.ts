@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { logStore } from '../lib/stores/logStore';
+import { logStore, type LogEntry } from '../lib/stores/logStore';
 
 beforeEach(() => {
   logStore.clear();
@@ -135,7 +135,7 @@ describe('logStore', () => {
 
   it('subscribe: вызывает listener сразу', () => {
     logStore.push('INFO', 'test');
-    const entries: any[][] = [];
+    const entries: LogEntry[][] = [];
     const unsub = logStore.subscribe(e => entries.push(e));
 
     expect(entries.length).toBe(1);
@@ -144,7 +144,7 @@ describe('logStore', () => {
   });
 
   it('unsubscribe: отписка', () => {
-    const entries: any[][] = [];
+    const entries: LogEntry[][] = [];
     const unsub = logStore.subscribe(e => entries.push(e));
 
     unsub();

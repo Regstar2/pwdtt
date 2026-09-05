@@ -1,13 +1,14 @@
 import type { MouseEvent } from 'react';
 import { IconPencil } from '@tabler/icons-react';
 import type { Server } from '../../lib/types';
-import { ServerIcon, pingColor } from './ServerIcon';
+import { ServerIcon } from './ServerIcon';
+import { pingColor } from './serverDisplay';
 
-export function getServerHashCount(server: Server) {
+function getServerHashCount(server: Server) {
   return (server.hashes ?? []).filter(hash => hash.trim()).length;
 }
 
-export function formatHashCount(count: number) {
+function formatHashCount(count: number) {
   const mod10 = count % 10;
   const mod100 = count % 100;
   if (mod10 === 1 && mod100 !== 11) return `${count} хеш`;
@@ -15,7 +16,7 @@ export function formatHashCount(count: number) {
   return `${count} хешей`;
 }
 
-export function getServerWorkers(server: Server) {
+function getServerWorkers(server: Server) {
   const hashes = getServerHashCount(server);
   let workers = server.power || Math.max(9, hashes * 9);
   workers = Math.max(9, Math.min(108, workers));

@@ -78,7 +78,7 @@ export default function Settings({ onClose }: Props) {
       update('obfsAccepted', true);
       update('obfsMode', pendingObfsMode);
       setShowObfsModal(false);
-    } catch (e) {
+    } catch {
       toastStore.show('Не удалось сохранить настройки', 3000);
     }
   };
