@@ -479,7 +479,7 @@ func (a *App) CheckAllVKHashes(profileName string) ([]VKHashCheckResult, error) 
 	})
 
 	if ctx.Err() != nil {
-		return results, nil
+		return results, ctx.Err()
 	}
 	return results, firstErr
 }
