@@ -18,6 +18,7 @@ type diagnosticEvent struct {
 	Action      string `json:"action,omitempty"`
 	Result      string `json:"result,omitempty"`
 	Attempt     int    `json:"attempt,omitempty"`
+	ElapsedMs   int64  `json:"elapsedMs,omitempty"`
 	DurationMs  int64  `json:"durationMs,omitempty"`
 	Message     string `json:"message,omitempty"`
 }
