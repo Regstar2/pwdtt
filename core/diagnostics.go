@@ -18,7 +18,7 @@ type coreDiagnosticEvent struct {
 }
 
 func (c *Core) emitDiagnostic(level, subsystem, stage, result, message string, workerID int, duration time.Duration) {
-	if c == nil || !c.cfg.DebugLogging {
+	if c == nil || !c.debugLogging.Load() {
 		return
 	}
 	event := coreDiagnosticEvent{
