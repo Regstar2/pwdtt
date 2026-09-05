@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,12 @@ type diagnosticEvent struct {
 	ElapsedMs   int64  `json:"elapsedMs,omitempty"`
 	DurationMs  int64  `json:"durationMs,omitempty"`
 	Message     string `json:"message,omitempty"`
+}
+
+var sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token)"?\s*[:=]\s*"?)([^"&\s,}\]&]+)`)
+
+func sanitizeDiagnosticText(message string) string {
+	return sensitiveDiagnosticPattern.ReplaceAllString(message, "${1}<redacted>")
 }
 
 func newOperationID(prefix string) string {
