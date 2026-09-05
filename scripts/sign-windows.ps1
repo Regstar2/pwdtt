@@ -56,12 +56,30 @@ try {
     $securePassword = ConvertTo-SecureString -String $PfxPassword -AsPlainText -Force
     $imported = @(Import-PfxCertificate -FilePath $tempPfx -CertStoreLocation 'Cert:\CurrentUser\My' -Password $securePassword -Exportable:$false)
 
-    $signingCert = $imported |
-        Where-Object {
-            $_.HasPrivateKey -and
-            ($_.EnhancedKeyUsageList | Where-Object { $_.ObjectId.Value -eq '1.3.6.1.5.5.7.3.3' })
-        } |
-        Select-Object -First 1
+    $signingCert = $null
+    foreach ($candidate in $imported) {
+        if (-not $candidate.HasPrivateKey) {
+            continue
+        }
+
+        $ekuExtension = $candidate.Extensions |
+            Where-Object { $_.Oid.Value -eq '2.5.29.37' } |
+            Select-Object -First 1
+        if (-not $ekuExtension) {
+            continue
+        }
+
+        $eku = [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$ekuExtension
+        $hasCodeSigningEku = @(
+            $eku.EnhancedKeyUsages |
+                Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.3' }
+        ).Count -gt 0
+
+        if ($hasCodeSigningEku) {
+            $signingCert = $candidate
+            break
+        }
+    }
 
     if (-not $signingCert) {
         throw 'The PFX does not contain a private-key certificate with the Code Signing EKU.'
