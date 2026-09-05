@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -522,6 +523,8 @@ func (a *App) checkVKHashProbe(ctx context.Context, id, profileName, operationID
 	}
 	settings := a.store.LoadSettings()
 	started := time.Now()
+	var progressMu sync.Mutex
+	stageStarted := make(map[string]time.Time)
 
 	a.onBridgeEvent("vk-hash-check-started", map[string]any{
 		"operationId": operationID, "hashId": id, "profileName": profileName,
@@ -543,15 +546,30 @@ func (a *App) checkVKHashProbe(ctx context.Context, id, profileName, operationID
 		TurnPort: profile.TurnPort,
 		ObfsMode: settings.ObfsMode,
 		OnProgress: func(progress core.HashProbeProgress) {
+			message, durationMs := splitProbeProgressDuration(progress.Message)
+			progressMu.Lock()
+			now := time.Now()
+			if progress.State == "running" {
+				if _, exists := stageStarted[progress.Stage]; !exists {
+					stageStarted[progress.Stage] = now
+				}
+			} else if durationMs == 0 {
+				if stageStart, exists := stageStarted[progress.Stage]; exists {
+					durationMs = now.Sub(stageStart).Milliseconds()
+					delete(stageStarted, progress.Stage)
+				}
+			}
+			progressMu.Unlock()
+
 			a.onBridgeEvent("vk-hash-check-progress", map[string]any{
 				"operationId": operationID, "hashId": id, "profileName": profileName,
-				"stage": progress.Stage, "state": progress.State, "message": progress.Message,
-				"elapsedMs": progress.ElapsedMs, "attempt": progress.Attempt,
+				"stage": progress.Stage, "state": progress.State, "message": message,
+				"elapsedMs": progress.ElapsedMs, "durationMs": durationMs, "attempt": progress.Attempt,
 			})
 			a.emitDiagnostic(diagnosticEvent{
 				Subsystem: "HASH", OperationID: operationID, HashID: id, Server: profileName,
 				Stage: progress.Stage, Action: progress.State, Attempt: progress.Attempt,
-				DurationMs: progress.ElapsedMs, Message: progress.Message,
+				ElapsedMs: progress.ElapsedMs, DurationMs: durationMs, Message: message,
 			})
 		},
 	})
@@ -606,9 +624,26 @@ func (a *App) checkVKHashProbe(ctx context.Context, id, profileName, operationID
 	a.emitDiagnostic(diagnosticEvent{
 		Subsystem: "HASH", OperationID: operationID, HashID: id, Server: profileName,
 		Stage: "probe", Action: "complete", Result: result.Status,
-		DurationMs: time.Since(started).Milliseconds(), Message: result.ErrorType,
+		ElapsedMs: time.Since(started).Milliseconds(), DurationMs: time.Since(started).Milliseconds(), Message: result.ErrorType,
 	})
 	return result, nil
+}
+
+func splitProbeProgressDuration(message string) (string, int64) {
+	trimmed := strings.TrimSpace(message)
+	if !strings.HasSuffix(trimmed, " ms)") {
+		return trimmed, 0
+	}
+	start := strings.LastIndex(trimmed, " (")
+	if start < 0 {
+		return trimmed, 0
+	}
+	raw := strings.TrimSuffix(trimmed[start+2:], " ms)")
+	ms, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || ms < 0 {
+		return trimmed, 0
+	}
+	return strings.TrimSpace(trimmed[:start]), ms
 }
 
 func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
