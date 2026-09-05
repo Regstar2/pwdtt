@@ -1,6 +1,9 @@
 package backend
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestIsNewer(t *testing.T) {
 	tests := []struct {
@@ -137,5 +140,64 @@ func TestDevVersionFallbackIsExplicit(t *testing.T) {
 	}
 	if isComparableVersion(Version) {
 		t.Fatalf("dev build must not be treated as release semver")
+	}
+}
+
+
+func TestReleaseTagFromURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		want    string
+		wantErr bool
+	}{
+		{name: "official latest redirect", rawURL: "https://github.com/Regstar2/PWDTT/releases/tag/v1.7.0", want: "v1.7.0"},
+		{name: "case insensitive owner repo", rawURL: "https://github.com/regstar2/pwdtt/releases/tag/v1.8.0", want: "v1.8.0"},
+		{name: "wrong repository", rawURL: "https://github.com/luminescq/PWDTT/releases/tag/v1.7.0", wantErr: true},
+		{name: "wrong host", rawURL: "https://example.com/Regstar2/PWDTT/releases/tag/v1.7.0", wantErr: true},
+		{name: "nested tag path", rawURL: "https://github.com/Regstar2/PWDTT/releases/tag/v1.7.0/extra", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := url.Parse(test.rawURL)
+			if err != nil {
+				t.Fatalf("url.Parse: %v", err)
+			}
+			got, err := releaseTagFromURL(parsed)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("releaseTagFromURL(%q) = %q, want error", test.rawURL, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("releaseTagFromURL(%q): %v", test.rawURL, err)
+			}
+			if got != test.want {
+				t.Fatalf("releaseTagFromURL(%q) = %q, want %q", test.rawURL, got, test.want)
+			}
+		})
+	}
+}
+
+func TestKnownReleaseAssetName(t *testing.T) {
+	tests := []struct {
+		goos   string
+		goarch string
+		want   string
+	}{
+		{goos: "windows", goarch: "amd64", want: "pwdtt-windows-amd64.exe"},
+		{goos: "linux", goarch: "amd64", want: "pwdtt-linux-amd64"},
+		{goos: "darwin", goarch: "amd64", want: "PWDTT-macos.zip"},
+		{goos: "darwin", goarch: "arm64", want: "PWDTT-macos.zip"},
+		{goos: "windows", goarch: "arm64", want: ""},
+		{goos: "linux", goarch: "arm64", want: ""},
+	}
+
+	for _, test := range tests {
+		if got := knownReleaseAssetName(test.goos, test.goarch); got != test.want {
+			t.Fatalf("knownReleaseAssetName(%s/%s) = %q, want %q", test.goos, test.goarch, got, test.want)
+		}
 	}
 }
