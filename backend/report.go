@@ -38,7 +38,7 @@ func (a *App) GenerateReport(entries []LogEntry) string {
 
 	if len(entries) > 0 {
 		sb.WriteString("## UI and structured diagnostics\n")
-		sb.WriteString("\`\`\`\n")
+		sb.WriteString("```\n")
 		for _, entry := range entries {
 			level := strings.ToUpper(strings.TrimSpace(entry.Level))
 			if level == "" {
@@ -50,7 +50,7 @@ func (a *App) GenerateReport(entries []LogEntry) string {
 			}
 			sb.WriteString("\n")
 		}
-		sb.WriteString("\`\`\`\n\n")
+		sb.WriteString("```\n\n")
 	}
 
 	// === Полные логи из файла ===
