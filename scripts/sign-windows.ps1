@@ -23,14 +23,23 @@ if ([string]::IsNullOrWhiteSpace($PfxPassword)) {
 
 $programFilesX86 = [Environment]::GetFolderPath('ProgramFilesX86')
 $kitsRoot = Join-Path $programFilesX86 'Windows Kits\10\bin'
-$signtool = Get-ChildItem -Path $kitsRoot -Filter 'signtool.exe' -File -Recurse -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
-    Sort-Object FullName -Descending |
-    Select-Object -First 1
+$versionDirs = @(Get-ChildItem -LiteralPath $kitsRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+    Sort-Object { [version]$_.Name } -Descending)
 
-if (-not $signtool) {
-    throw "signtool.exe was not found below $kitsRoot"
+$signtoolPath = $null
+foreach ($dir in $versionDirs) {
+    $candidate = Join-Path $dir.FullName 'x64\signtool.exe'
+    if (Test-Path -LiteralPath $candidate) {
+        $signtoolPath = $candidate
+        break
+    }
 }
+
+if (-not $signtoolPath) {
+    throw "x64 signtool.exe was not found below $kitsRoot"
+}
+Write-Host "Using signtool: $signtoolPath"
 
 $tempPfx = Join-Path ([IO.Path]::GetTempPath()) "pwdtt-sign-$([guid]::NewGuid().ToString('N')).pfx"
 $imported = @()
@@ -69,7 +78,7 @@ try {
     }
     $arguments += $resolvedPath
 
-    & $signtool.FullName @arguments
+    & $signtoolPath @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "signtool failed with exit code $LASTEXITCODE"
     }
