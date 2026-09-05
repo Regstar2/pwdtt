@@ -44,6 +44,9 @@ func (a *App) SetDebugLogging(enabled bool) error {
 	if err := a.store.SaveSettings(settings); err != nil {
 		return err
 	}
+	if a.bridge != nil {
+		a.bridge.SetDebugLogging(enabled)
+	}
 	a.onBridgeEvent("diagnostic-mode-changed", enabled)
 	return nil
 }
