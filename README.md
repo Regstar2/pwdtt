@@ -60,11 +60,13 @@ PWDTT поднимает локальный WireGuard-интерфейс и пе
 
 Для Windows x64 готовые сборки публикуются на странице [Releases](../../releases).
 
-1. Скачайте `pwdtt-windows-amd64.exe`.
-2. Запустите приложение.
+1. Для обычной установки скачайте `pwdtt-windows-amd64-setup.exe`. Portable-вариант `pwdtt-windows-amd64.exe` остаётся официальным артефактом для запуска без установки.
+2. Установите или запустите приложение.
 3. Добавьте сервер кнопкой `+`: вставьте `wdtt://`-ссылку или заполните параметры вручную.
 4. В настройках Hash добавьте до четырёх хешей вручную либо на Windows войдите в VK и создайте их автоматически.
 5. Выберите сервер и нажмите кнопку подключения. На Windows при настройке туннеля подтвердите штатный запрос UAC; вручную запускать всё приложение от имени администратора не требуется.
+
+Каждый release содержит `SHA256SUMS` с SHA-256 для Linux, Windows portable, Windows installer и macOS payload. Статус Authenticode-подписи Windows указывается в release notes.
 
 Для Linux x86_64 и macOS Universal артефакты также собираются GitHub Actions и публикуются для релизов, где они доступны.
 
@@ -81,6 +83,12 @@ PWDTT поднимает локальный WireGuard-интерфейс и пе
 GUI PWDTT запускается без повышенных прав. Когда соединение доходит до настройки WireGuard, приложение запускает отдельный минимальный privileged helper через стандартный UAC flow Windows. При отказе от UAC подключение отменяется и приложение не продолжает работу с ложным статусом VPN. VK-авторизация, WebView2 и остальные обычные операции не повышаются до администратора.
 
 Драйвер Wintun используется приложением для WireGuard-интерфейса.
+
+#### Установка и portable
+
+Рекомендуемый Windows installer устанавливает PWDTT для текущего пользователя в `%LOCALAPPDATA%\Programs\PWDTT`, поддерживает повторную установку поверх предыдущей версии и штатный uninstall. Installer не меняет модель прав самого приложения: GUI остаётся unelevated, а UAC запрашивается только существующим privileged helper в момент настройки туннеля.
+
+Portable `pwdtt-windows-amd64.exe` продолжает публиковаться как официальный вариант без установки. Release signing, unsigned fallback и проверка SHA-256 описаны в [Windows release guide](docs/windows-release.md).
 
 ### Linux
 
@@ -178,12 +186,13 @@ macOS Universal необходимо собирать на macOS:
 wails build -platform darwin/universal -o pwdtt-macos
 ```
 
-GitHub Actions workflow `.github/workflows/build.yml` запускает `go test ./...` для root module, `go test -race ./...` для `core`, Windows backend tests на `windows-latest`, а также `npm test`, `npm run lint` и production frontend build. После успешных проверок выполняются отдельные сборки для Linux/Windows и macOS. При сборке tag `vX.Y.Z` CI автоматически передаёт `X.Y.Z` в `backend.Version`; опубликованные артефакты и release создаются из одного workflow run. Обычные локальные команды выше оставляют версию `dev`. Для воспроизводимой локальной release-like сборки укажите `-ldflags "-X pwdtt/backend.Version=X.Y.Z"`.
+GitHub Actions workflow `.github/workflows/build.yml` запускает `go test ./...` для root module, `go test -race ./...` для `core`, Windows backend tests на `windows-latest`, `npm test`, `npm run lint`, production frontend build и smoke release helpers. После успешных проверок выполняются отдельные сборки Linux/Windows и macOS, а Windows portable проходит packaging job на `windows-2025`: Authenticode signing для owner tag при наличии secrets, Inno Setup installer и install/upgrade/uninstall smoke. При сборке tag `vX.Y.Z` CI автоматически передаёт `X.Y.Z` в `backend.Version`; release создаётся только из финальных artifacts этого workflow, а `scripts/release.ps1` вычисляет `SHA256SUMS`. Обычные локальные команды выше оставляют версию `dev`. Для воспроизводимой локальной release-like сборки укажите `-ldflags "-X pwdtt/backend.Version=X.Y.Z"`.
 
 ## Документация
 
 - [Релизы форка](../../releases) — опубликованные версии, изменения и готовые артефакты.
 - [ADR 0001: доставка обновлений](docs/adr/0001-update-delivery.md) — release channel, version source, asset selection и safe fallback без self-update.
+- [Windows release guide](docs/windows-release.md) — installer, Authenticode signing, unsigned fallback, installer smoke и SHA-256 checksums.
 - [Issues форка](../../issues) — известные проблемы и текущие задачи.
 - [Upstream PWDTT](https://github.com/luminescq/PWDTT) — исходный desktop-проект.
 - [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) — исходный Android-проект, на базе которого появился PWDTT.
