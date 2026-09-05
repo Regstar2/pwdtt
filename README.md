@@ -152,12 +152,12 @@ Release-сборки получают runtime version из Git tag `vX.Y.Z` во
 
 - Go 1.26+;
 - Node.js 22+;
-- Wails v2.
+- Wails v2.13.0.
 
 ```bash
 git clone https://github.com/Regstar2/PWDTT.git
 cd PWDTT
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 ```
 
 Linux amd64:
@@ -178,7 +178,7 @@ macOS Universal необходимо собирать на macOS:
 wails build -platform darwin/universal -o pwdtt-macos
 ```
 
-GitHub Actions workflow `.github/workflows/build.yml` содержит отдельные сборки для Linux/Windows и macOS. При сборке tag `vX.Y.Z` CI автоматически передаёт `X.Y.Z` в `backend.Version`; опубликованные артефакты и release создаются из одного workflow run. Обычные локальные команды выше оставляют версию `dev`. Для воспроизводимой локальной release-like сборки укажите `-ldflags "-X pwdtt/backend.Version=X.Y.Z"`.
+GitHub Actions workflow `.github/workflows/build.yml` запускает `go test ./...` для root module, `go test -race ./...` для `core`, Windows backend tests на `windows-latest`, а также `npm test`, `npm run lint` и production frontend build. После успешных проверок выполняются отдельные сборки для Linux/Windows и macOS. При сборке tag `vX.Y.Z` CI автоматически передаёт `X.Y.Z` в `backend.Version`; опубликованные артефакты и release создаются из одного workflow run. Обычные локальные команды выше оставляют версию `dev`. Для воспроизводимой локальной release-like сборки укажите `-ldflags "-X pwdtt/backend.Version=X.Y.Z"`.
 
 ## Документация
 

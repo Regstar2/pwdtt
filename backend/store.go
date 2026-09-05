@@ -246,10 +246,11 @@ func atomicWrite(path string, data []byte) error {
 }
 
 // NewTestStore создаёт Store с временной директорией (для тестов).
-// Устанавливает HOME в tmpdir и создаёт нужные поддиректории.
+// Изолирует HOME/XDG_CONFIG_HOME и создаёт нужные поддиректории.
 func NewTestStore(t interface{ TempDir() string; Setenv(string, string) }) *Store {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
 	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "servers"), 0o755)
 	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "logs"), 0o755)
 	return NewStore()

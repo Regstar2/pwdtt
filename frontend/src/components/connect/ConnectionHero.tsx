@@ -31,11 +31,10 @@ export default function ConnectionHero({
   onRetry: () => void;
   onLogs: () => void;
 }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
     if (connection.state !== 'connected') return;
-    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [connection.state]);

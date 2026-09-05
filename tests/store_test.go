@@ -11,16 +11,7 @@ import (
 // newTestStore создаёт Store с временной директорией.
 func newTestStore(t *testing.T) *backend.Store {
 	t.Helper()
-	// Store читает baseDir из configDir(), но мы можем создать
-	// реальный Store и подменить через Save/Load — проще всего
-	// использовать реальный путь с тестовым суффиксом.
-	//
-	// Для изоляции используем HOME → tmpdir.
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "servers"), 0o755)
-	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "logs"), 0o755)
-	return backend.NewStore()
+	return backend.NewTestStore(t)
 }
 
 // ═══════════════════════════════════════════════════
@@ -58,7 +49,7 @@ func TestLoadSettings_InvalidJSON(t *testing.T) {
 func TestLoadSaveSettings_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
 
-	original := backend.AppSettings{AutoStart: false, ObfsMode: "video"}
+	original := backend.AppSettings{AutoStart: false, ObfsMode: "video", ObfsAccepted: true}
 	if err := s.SaveSettings(original); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
@@ -95,8 +86,8 @@ func TestLoadSettings_UnknownFields(t *testing.T) {
 	if settings.AutoStart != false {
 		t.Errorf("expected AutoStart=false (zero value), got %v", settings.AutoStart)
 	}
-	if settings.ObfsMode != "" {
-		t.Errorf("expected ObfsMode='' (zero value), got %q", settings.ObfsMode)
+	if settings.ObfsMode != "audio" {
+		t.Errorf("expected ObfsMode='audio' when obfuscation is not accepted, got %q", settings.ObfsMode)
 	}
 }
 

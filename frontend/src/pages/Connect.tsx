@@ -21,7 +21,8 @@ import ConnectionHero from '../components/connect/ConnectionHero';
 import ConnectionProgress from '../components/connect/ConnectionProgress';
 import ConnectionStats from '../components/connect/ConnectionStats';
 import ServerSelector from '../components/connect/ServerSelector';
-import { SERVER_ICONS } from '../components/connect/ServerIcon';
+import { ServerIcon } from '../components/connect/ServerIcon';
+import { SERVER_ICON_KEYS } from '../components/connect/serverDisplay';
 import './Connect.css';
 
 function requestedWorkers(server: Server, hashCount: number) {
@@ -46,18 +47,18 @@ function IconPicker({
         className="icon-picker"
         style={{
           left: Math.min(iconMenu.x, window.innerWidth - 256),
-          top: Math.max(12, iconMenu.y - 4 - (Math.ceil(SERVER_ICONS.length / 6) * 40 + 20)),
+          top: Math.max(12, iconMenu.y - 4 - (Math.ceil(SERVER_ICON_KEYS.length / 6) * 40 + 20)),
         }}
       >
-        {SERVER_ICONS.map(icon => (
+        {SERVER_ICON_KEYS.map(iconKey => (
           <button
             type="button"
-            key={icon.key}
-            className={`icon-picker-btn${(iconMenu.server.icon ?? 'clover') === icon.key ? ' icon-picker-btn--active' : ''}`}
-            onClick={() => onPick(icon.key)}
-            title={icon.key}
+            key={iconKey}
+            className={`icon-picker-btn${(iconMenu.server.icon ?? 'clover') === iconKey ? ' icon-picker-btn--active' : ''}`}
+            onClick={() => onPick(iconKey)}
+            title={iconKey}
           >
-            {icon.render(18)}
+            <ServerIcon iconKey={iconKey} size={18} />
           </button>
         ))}
       </div>
@@ -161,7 +162,7 @@ export default function Connect() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [latencyTargetsKey, tunnelState]);
+  }, [latencyTargetsKey, servers.length, tunnelState]);
 
   useEffect(() => {
     ListProfiles().then(profiles => {
@@ -307,7 +308,9 @@ export default function Connect() {
       connectionStore.setTunnelState('disconnecting');
       try {
         await WailsDisconnect();
-      } catch {
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logStore.push('ERROR', `Ошибка отключения: ${message}`);
       } finally {
         tunnelStore.set('idle');
         connectionStore.disconnected();
