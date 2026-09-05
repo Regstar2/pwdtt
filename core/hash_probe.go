@@ -175,7 +175,6 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 					sessionCancel()
 					cancel()
 					emitHashProbeProgress(cfg, started, "completed", "success", "VK-хеш прошёл functional probe", index+1)
-					emitHashProbeProgress(cfg, started, "completed", "success", "VK-хеш прошёл functional probe", index+1)
 					return HashProbeResult{
 						Status:    HashProbeValid,
 						Message:   "VK hash completed VK/TURN/WRAP/DTLS probe",
@@ -187,6 +186,7 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 				sessionCancel()
 				if stats.ActiveConnections.Load() > 0 {
 					cancel()
+					emitHashProbeProgress(cfg, started, "completed", "success", "VK-хеш прошёл functional probe", index+1)
 					return HashProbeResult{
 						Status:    HashProbeValid,
 						Message:   "VK hash completed VK/TURN/WRAP/DTLS probe",
