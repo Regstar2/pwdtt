@@ -436,7 +436,7 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 	name := generateName()
 	escapedName := neturl.QueryEscape(name)
 
-	log.Printf("[STREAM %d] [VK Auth] Identity - Name: %s | UA: %s", streamID, name, profile.UserAgent)
+	log.Printf("[STREAM %d] [VK Auth] Identity ready | UA: %s", streamID, profile.UserAgent)
 
 	doRequest := func(data string, url string) (resp map[string]interface{}, err error) {
 		parsedURL, err := neturl.Parse(url)
