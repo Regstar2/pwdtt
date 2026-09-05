@@ -612,10 +612,26 @@ func (a *App) checkVKHashProbe(ctx context.Context, id, profileName, operationID
 }
 
 func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
+	if a.hashOps == nil {
+		a.hashOps = newVKHashOperationState()
+	}
+	ctx, operationID, done := a.hashOps.beginManual(a.appContext())
+	defer done()
+	return a.replaceVKHashWithContext(ctx, id, profileName, operationID)
+}
+
+func (a *App) replaceVKHashWithContext(ctx context.Context, id, profileName, operationID string) (VKHashEntry, error) {
 	profileName = sanitizeProfileName(profileName)
 	if profileName == "" {
 		return VKHashEntry{}, errors.New("выберите сервер для замены VK-хеша")
 	}
+	if ctx == nil {
+		ctx = a.appContext()
+	}
+	if err := ctx.Err(); err != nil {
+		return VKHashEntry{}, err
+	}
+
 	entries := a.ListVKHashes()
 	var old VKHashEntry
 	found := false
@@ -629,14 +645,28 @@ func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
 	if !found {
 		return VKHashEntry{}, errors.New("VK-хеш не найден")
 	}
-	a.onBridgeEvent("vk-hash-replacement-started", map[string]any{"hashId": id, "profileName": profileName})
+	a.onBridgeEvent("vk-hash-replacement-started", map[string]any{
+		"operationId": operationID, "hashId": id, "profileName": profileName,
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, HashID: id, Server: profileName,
+		Stage: "replacement", Action: "start",
+	})
 
-	generated, err := a.GenerateVKHashes(1, existing)
+	vkCtx, vkDone, err := a.beginVKOperationWithParent(ctx)
 	if err != nil {
 		return VKHashEntry{}, err
 	}
+	generated, generateErr := a.generateVKHashesWithContext(vkCtx, 1, existing)
+	vkDone()
+	if generateErr != nil {
+		return VKHashEntry{}, generateErr
+	}
 	if len(generated) != 1 {
 		return VKHashEntry{}, errors.New("VK не вернул новый хеш")
+	}
+	if err := ctx.Err(); err != nil {
+		return VKHashEntry{}, err
 	}
 
 	vkHashRegistryMu.Lock()
@@ -654,13 +684,20 @@ func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
 		return VKHashEntry{}, err
 	}
 
-	checked, err := a.CheckVKHash(newEntry.ID, profileName)
+	checked, err := a.checkVKHashCoordinated(ctx, newEntry.ID, profileName, operationID)
 	if err != nil || checked.Status != vkHashStatusValid {
 		a.cleanupOrphanVKHash(newEntry.ID)
 		if err != nil {
 			return VKHashEntry{}, err
 		}
+		if checked.Status == "canceled" {
+			return VKHashEntry{}, context.Canceled
+		}
 		return VKHashEntry{}, fmt.Errorf("новый VK-хеш не прошёл проверку: %s", checked.Message)
+	}
+	if err := ctx.Err(); err != nil {
+		a.cleanupOrphanVKHash(newEntry.ID)
+		return VKHashEntry{}, err
 	}
 
 	profile, profileErr := a.store.LoadProfile(profileName)
@@ -717,10 +754,16 @@ func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
 		scope = "pool"
 	}
 	a.onBridgeEvent("vk-hash-replaced", map[string]any{
-		"profileName": profileName, "oldHash": old.Hash, "newHash": newEntry.Hash, "scope": scope,
+		"operationId": operationID, "profileName": profileName,
+		"oldHash": old.Hash, "newHash": newEntry.Hash, "scope": scope,
 	})
 	a.onBridgeEvent("vk-hash-replacement-completed", map[string]any{
-		"oldHashId": old.ID, "newHashId": newEntry.ID, "profileName": profileName, "scope": scope,
+		"operationId": operationID, "oldHashId": old.ID, "newHashId": newEntry.ID,
+		"profileName": profileName, "scope": scope,
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, HashID: newEntry.ID, Server: profileName,
+		Stage: "replacement", Action: "complete", Result: "valid",
 	})
 	return a.vkHashEntry(newEntry.ID)
 }
@@ -986,12 +1029,21 @@ func (a *App) prepareVKHashes(parent context.Context, params ConnectParams, oper
 				continue
 			}
 			replacementAttempts++
-			newEntry, replaceErr := a.ReplaceVKHash(candidate.ID, params.ProfileName)
+			if preflightCtx.Err() != nil {
+				break
+			}
+			newEntry, replaceErr := a.replaceVKHashWithContext(preflightCtx, candidate.ID, params.ProfileName, operationID)
 			if replaceErr == nil {
 				return []string{newEntry.Hash}, nil
 			}
 			lastReplacementErr = replaceErr
 		}
+	}
+	if parent.Err() != nil {
+		return nil, fmt.Errorf("подключение отменено: %w", parent.Err())
+	}
+	if preflightCtx.Err() != nil {
+		return nil, fmt.Errorf("рабочих VK-хешей не осталось; preflight timeout: %w", preflightCtx.Err())
 	}
 	if lastReplacementErr != nil {
 		return nil, fmt.Errorf("рабочих VK-хешей не осталось; автозамена не удалась: %w", lastReplacementErr)
