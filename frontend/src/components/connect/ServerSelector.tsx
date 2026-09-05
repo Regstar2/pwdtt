@@ -2,8 +2,8 @@ import type { MouseEvent } from 'react';
 import { IconChevronDown } from '@tabler/icons-react';
 import type { Server } from '../../lib/types';
 import ServerList from './ServerList';
-import { ServerIcon, pingColor } from './ServerIcon';
-import { formatHashCount, getServerHashCount, getServerWorkers } from './ServerListItem';
+import { ServerIcon } from './ServerIcon';
+import { formatHashCount, getServerHashCount, getServerWorkers, pingColor } from './serverDisplay';
 
 function latencyText(latency: number | null | undefined) {
   if (latency === undefined) return '…';
