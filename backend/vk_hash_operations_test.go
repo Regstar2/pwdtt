@@ -124,3 +124,16 @@ func TestVKHashOperationStateRetriesCanceledSharedProbe(t *testing.T) {
 		t.Fatalf("probe calls=%d, want 2", got)
 	}
 }
+
+func TestAppDisconnectCancelsPreflightContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	app := &App{connectCancel: cancel}
+
+	app.Disconnect()
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Disconnect did not cancel connection preflight")
+	}
+}
