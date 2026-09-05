@@ -119,6 +119,15 @@ func (b *Bridge) IsRunning() bool {
 	return b.running
 }
 
+func (b *Bridge) SetDebugLogging(enabled bool) {
+	b.mu.Lock()
+	c := b.core
+	b.mu.Unlock()
+	if c != nil {
+		c.SetDebugLogging(enabled)
+	}
+}
+
 func (b *Bridge) SendCaptchaResult(token string) {
 	b.mu.Lock()
 	c := b.core
