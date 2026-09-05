@@ -65,6 +65,7 @@ func (b *Bridge) Connect(params ConnectParams) error {
 		deviceID = "unknown"
 	}
 
+	settings := b.store.LoadSettings()
 	cfg := core.Config{
 		PeerAddr:    params.PeerAddr,
 		Password:    params.Password,
@@ -74,6 +75,8 @@ func (b *Bridge) Connect(params ConnectParams) error {
 		CaptchaMode: params.CaptchaMode,
 		ObfsMode:    params.ObfsMode,
 		Fingerprint: params.Fingerprint,
+		OperationID: params.OperationID,
+		DebugLogging: settings.DebugLogging,
 	}
 
 	c := core.New(cfg)
@@ -176,6 +179,13 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			switch ev.Name {
 			case "connection_progress":
 				b.onEvent("connection_progress", ev.Data)
+			case "diagnostic":
+				b.onEvent("diagnostic_event", ev.Data)
+				b.mu.Lock()
+				if b.logFile != nil {
+					b.logFile.Write("DEBUG", ev.Data)
+				}
+				b.mu.Unlock()
 			case "wg_config":
 				b.onEvent("connection_progress", map[string]any{
 					"stage": "vpn", "state": "running", "message": "Настройка VPN-маршрутов",
