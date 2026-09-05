@@ -265,8 +265,8 @@ jobs:
           try {
             Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $password | Out-Null
             Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-            Write-Host 'Trusting ephemeral certificate in CurrentUser\\TrustedPeople...'
-            Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPeople' | Out-Null
+            Write-Host 'Trusting ephemeral certificate in CurrentUser\\Root...'
+            Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
             $thumbprint = $cert.Thumbprint
             $pfxBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
             Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -Force
@@ -279,8 +279,8 @@ jobs:
             if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)")) {
               Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force
             }
-            if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($cert.Thumbprint)")) {
-              Remove-Item -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($cert.Thumbprint)" -Force
+            if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)")) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force
             }
             Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
           }
