@@ -149,15 +149,16 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			b.onEvent("state_changed", ev.Status)
 
 		case core.EventLog:
-			// Пишем ВСЁ в файл (включая отфильтрованное для UI)
+			message := sanitizeDiagnosticText(ev.Message)
+			// Пишем ВСЁ в файл (включая отфильтрованное для UI), но уже без чувствительных полей.
 			b.mu.Lock()
 			if b.logFile != nil {
-				b.logFile.Write(ev.Level, ev.Message)
+				b.logFile.Write(ev.Level, message)
 			}
 			b.mu.Unlock()
 			// В UI — только отфильтрованное
 			if ev.Level != "SKIP" {
-				b.onEvent("log", ev.Level, ev.Message)
+				b.onEvent("log", ev.Level, message)
 			}
 
 		case core.EventStats:
@@ -182,7 +183,7 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			}
 
 		case core.EventError:
-			b.onEvent("error", ev.Message)
+			b.onEvent("error", sanitizeDiagnosticText(ev.Message))
 
 		case core.EventEvent:
 			switch ev.Name {
