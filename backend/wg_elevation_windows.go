@@ -4,6 +4,7 @@ package backend
 
 import (
 	"crypto/rand"
+	"errors"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -294,7 +295,7 @@ func newWindowsWGHelperToken() (string, error) {
 }
 
 func friendlyWindowsElevationError(err error) error {
-	if errno, ok := err.(syscall.Errno); ok && (errno == syscall.Errno(5) || errno == syscall.Errno(1223)) {
+	if errors.Is(err, syscall.Errno(5)) || errors.Is(err, syscall.Errno(1223)) {
 		return fmt.Errorf("права администратора не предоставлены: запрос UAC отменён; подключение не начато")
 	}
 	return fmt.Errorf("не удалось запросить права администратора через UAC: %w", err)
