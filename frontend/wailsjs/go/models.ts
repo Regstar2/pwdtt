@@ -12,6 +12,7 @@ export namespace backend {
     hashMode?: string;
     hashAutoCheck?: boolean;
     hashAutoReplace?: boolean;
+    operationId?: string;
 
     static createFrom(source: any = {}) { return new ConnectParams(source); }
     constructor(source: any = {}) {
@@ -28,6 +29,7 @@ export namespace backend {
       this.hashMode = source["hashMode"];
       this.hashAutoCheck = source["hashAutoCheck"];
       this.hashAutoReplace = source["hashAutoReplace"];
+      this.operationId = source["operationId"];
     }
   }
 

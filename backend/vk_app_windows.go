@@ -99,6 +99,17 @@ func (a *App) GenerateVKHashes(count int, existing []string) ([]string, error) {
 	}
 	defer done()
 
+	hashes, err := a.generateVKHashesWithContext(ctx, count, existing)
+	if errors.Is(err, context.Canceled) {
+		return hashes, errors.New("операция VK отменена")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return hashes, errors.New("время ожидания операции VK истекло")
+	}
+	return hashes, err
+}
+
+func (a *App) generateVKHashesWithContext(ctx context.Context, count int, existing []string) ([]string, error) {
 	accessToken, err := a.ensureVKAccessToken(ctx)
 	if err != nil {
 		return nil, err
@@ -111,9 +122,6 @@ func (a *App) GenerateVKHashes(count int, existing []string) ([]string, error) {
 		if errors.As(err, &apiErr) && apiErr.Code == 5 {
 			_ = clearSavedVKAccessToken()
 			return hashes, errors.New("VK API отклонил access token; повторите создание хеша, чтобы получить новый токен")
-		}
-		if errors.Is(err, context.Canceled) {
-			return hashes, errors.New("операция VK отменена")
 		}
 		return hashes, err
 	}

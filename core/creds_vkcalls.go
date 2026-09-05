@@ -147,7 +147,7 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 		return "", "", nil, newVKCallsFailure("setup", vkCallsFailureSetup, fmt.Errorf("create tls client: %w", err))
 	}
 
-	log.Printf("[STREAM %d] [VKCalls] Identity - Name: %s | device_id=%s | TLS=Chrome_146 | UA: %s", streamID, name, deviceID, profile.UserAgent)
+	log.Printf("[STREAM %d] [VKCalls] Identity ready | TLS=Chrome_146 | UA: %s", streamID, profile.UserAgent)
 
 	doRequest := func(step string, url string) (map[string]interface{}, error) {
 		req, err := fhttp.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(nil))
@@ -224,7 +224,7 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 	if err != nil {
 		return "", "", nil, newVKCallsFailure(step2, vkCallsFailureParse, fmt.Errorf("parse secret: %w", err))
 	}
-	log.Printf("[STREAM %d] [VKCalls] step2 OK, user_id=%s, secret (%d chars)", streamID, userIDStr, len(secret))
+	log.Printf("[STREAM %d] [VKCalls] step2 OK, user resolved, secret (%d chars)", streamID, len(secret))
 
 	step3 := "step3 messages.getAnonymCallToken"
 	step3URL := fmt.Sprintf(

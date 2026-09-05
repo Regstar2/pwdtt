@@ -13,6 +13,7 @@ type ConnectParams struct {
 	HashMode        string   `json:"hashMode,omitempty"`
 	HashAutoCheck   bool     `json:"hashAutoCheck,omitempty"`
 	HashAutoReplace bool     `json:"hashAutoReplace,omitempty"`
+	OperationID     string   `json:"operationId,omitempty"`
 }
 
 type VKHashPolicy struct {
@@ -62,7 +63,8 @@ type ProfileData struct {
 }
 
 type AppSettings struct {
-	AutoStart    bool   `json:"autoStart"`
-	ObfsMode     string `json:"obfsMode"`
-	ObfsAccepted bool   `json:"obfsAccepted"`
+	AutoStart     bool   `json:"autoStart"`
+	ObfsMode      string `json:"obfsMode"`
+	ObfsAccepted  bool   `json:"obfsAccepted"`
+	DebugLogging bool   `json:"debugLogging,omitempty"`
 }

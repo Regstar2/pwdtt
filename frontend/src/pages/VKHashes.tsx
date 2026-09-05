@@ -13,9 +13,11 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import type { backend } from '../../wailsjs/go/models';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import {
   AddVKHash,
   CancelVKOperation,
+  CancelVKHashChecks,
   CheckAllVKHashes,
   CheckVKHash,
   DeleteVKHash,
@@ -34,7 +36,43 @@ import type { Server, VKHashMode } from '../lib/types';
 import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
 import './VKHashes.css';
 
-type Busy = 'login' | 'logout' | 'generate' | 'check-all' | 'add' | string | null;
+type Busy = 'login' | 'logout' | 'generate' | 'add' | string | null;
+
+interface BulkProgress {
+  operationId: string;
+  running: boolean;
+  completed: number;
+  total: number;
+  hashId: string;
+  stage: string;
+  state: string;
+  elapsedMs: number;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+      return null;
+    }
+  }
+  return value && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+function stageLabel(stage: string): string {
+  switch (stage) {
+    case 'queued': return 'В очереди';
+    case 'dns': return 'DNS';
+    case 'credentials': return 'VK-креды';
+    case 'turn': return 'TURN Allocate';
+    case 'wrap': return 'WRAP';
+    case 'dtls': return 'DTLS';
+    case 'completed': return 'Завершение';
+    default: return stage || 'Подготовка';
+  }
+}
 
 function errorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -99,6 +137,7 @@ export default function VKHashes() {
   const [authChecked, setAuthChecked] = useState(false);
   const [manualHash, setManualHash] = useState('');
   const [busy, setBusy] = useState<Busy>(null);
+  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
 
   const selected = useMemo(
     () => servers.find(server => server.id === selectedId) ?? servers[0] ?? null,
@@ -138,6 +177,75 @@ export default function VKHashes() {
     };
     void init();
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const offs = [
+      EventsOn('vk-hash-bulk-started', (payload: unknown) => {
+        const record = asRecord(payload);
+        if (!record) return;
+        setBulkProgress({
+          operationId: String(record.operationId ?? ''),
+          running: true,
+          completed: 0,
+          total: Number(record.total ?? 0),
+          hashId: '',
+          stage: 'queued',
+          state: 'running',
+          elapsedMs: 0,
+        });
+      }),
+      EventsOn('vk-hash-check-progress', (payload: unknown) => {
+        const record = asRecord(payload);
+        if (!record) return;
+        const operationId = String(record.operationId ?? '');
+        if (!operationId.startsWith('hash-bulk-')) return;
+        setBulkProgress(previous => {
+          if (!previous || previous.operationId !== operationId) return previous;
+          return {
+            ...previous,
+            hashId: String(record.hashId ?? previous.hashId),
+            stage: String(record.stage ?? previous.stage),
+            state: String(record.state ?? previous.state),
+            elapsedMs: Number(record.elapsedMs ?? previous.elapsedMs),
+          };
+        });
+      }),
+      EventsOn('vk-hash-bulk-progress', (payload: unknown) => {
+        const record = asRecord(payload);
+        if (!record) return;
+        const operationId = String(record.operationId ?? '');
+        setBulkProgress(previous => {
+          if (!previous || previous.operationId !== operationId) return previous;
+          return {
+            ...previous,
+            completed: Number(record.completed ?? previous.completed),
+            total: Number(record.total ?? previous.total),
+            hashId: String(record.hashId ?? previous.hashId),
+            elapsedMs: Number(record.elapsedMs ?? previous.elapsedMs),
+          };
+        });
+      }),
+      EventsOn('vk-hash-check-result', () => { void refresh(); }),
+      EventsOn('vk-hash-bulk-completed', (payload: unknown) => {
+        const record = asRecord(payload);
+        if (!record) return;
+        const operationId = String(record.operationId ?? '');
+        setBulkProgress(previous => {
+          if (!previous || previous.operationId !== operationId) return previous;
+          return {
+            ...previous,
+            running: false,
+            completed: Number(record.completed ?? previous.completed),
+            total: Number(record.total ?? previous.total),
+            state: String(record.state ?? 'completed'),
+            elapsedMs: Number(record.elapsedMs ?? previous.elapsedMs),
+          };
+        });
+        void refresh();
+      }),
+    ];
+    return () => offs.forEach(off => off());
   }, []);
 
   const run = async (key: Busy, action: () => Promise<void>) => {
@@ -207,12 +315,27 @@ export default function VKHashes() {
     await refresh();
   });
 
-  const checkAll = () => run('check-all', async () => {
-    if (!selected) throw new Error('Выберите сервер для функциональной проверки');
-    await CheckAllVKHashes(selected.name);
-    await refresh();
-    toastStore.show('Проверка VK-хешей завершена');
-  });
+  const checkAll = async () => {
+    if (!selected || bulkProgress?.running) return;
+    setBulkProgress({
+      operationId: '', running: true, completed: 0, total: entries.length,
+      hashId: '', stage: 'queued', state: 'running', elapsedMs: 0,
+    });
+    try {
+      await CheckAllVKHashes(selected.name);
+      await refresh();
+      toastStore.show('Проверка VK-хешей завершена');
+    } catch (error) {
+      const message = errorMessage(error);
+      if (/canceled|cancelled|отмен/i.test(message)) {
+        setBulkProgress(previous => previous ? { ...previous, running: false, state: 'canceled' } : null);
+        toastStore.show('Проверка VK-хешей отменена');
+      } else {
+        setBulkProgress(previous => previous ? { ...previous, running: false, state: 'error' } : null);
+        toastStore.show(message, 5000);
+      }
+    }
+  };
 
   const replace = (entry: backend.VKHashEntry) => run(`replace:${entry.id}`, async () => {
     if (!selected) throw new Error('Выберите сервер для замены');
@@ -234,11 +357,17 @@ export default function VKHashes() {
   };
 
   const cancel = async () => {
-    await CancelVKOperation();
-    toastStore.show('Отмена операции VK…');
+    await Promise.allSettled([CancelVKOperation(), CancelVKHashChecks()]);
+    toastStore.show('Отмена операции…');
+  };
+
+  const cancelBulk = async () => {
+    await CancelVKHashChecks();
+    toastStore.show('Отмена проверки VK-хешей…');
   };
 
   const pool = entries.filter(entry => entry.inPool);
+  const bulkEntry = bulkProgress?.hashId ? entries.find(entry => entry.id === bulkProgress.hashId) : undefined;
   const local = selected
     ? entries.filter(entry => !entry.inPool && entry.usedBy?.includes(selected.name))
     : [];
@@ -393,10 +522,33 @@ export default function VKHashes() {
               <strong>Общий пул · {pool.length}</strong>
               <span>Один экземпляр хеша может использоваться несколькими серверами.</span>
             </div>
-            <button type="button" className="vkh-btn vkh-btn--ghost" onClick={() => void checkAll()} disabled={Boolean(busy) || !selected || entries.length === 0}>
-              <IconRefresh size={17} /> Проверить все
+            <button type="button" className="vkh-btn vkh-btn--ghost" onClick={() => void checkAll()} disabled={Boolean(busy) || bulkProgress?.running || !selected || entries.length === 0}>
+              <IconRefresh size={17} /> {bulkProgress?.running ? 'Проверяется…' : 'Проверить все'}
             </button>
           </div>
+          {bulkProgress ? (
+            <div className={`vkh-progress vkh-progress--${bulkProgress.state}`}>
+              <div className="vkh-progress-head">
+                <div>
+                  <strong>{bulkProgress.running ? 'Проверка VK-хешей' : bulkProgress.state === 'canceled' ? 'Проверка отменена' : 'Проверка завершена'}</strong>
+                  <span>{bulkProgress.completed} / {bulkProgress.total}</span>
+                </div>
+                {bulkProgress.running ? (
+                  <button type="button" className="vkh-btn vkh-btn--ghost" onClick={() => void cancelBulk()}>
+                    <IconX size={16} /> Отменить
+                  </button>
+                ) : null}
+              </div>
+              <div className="vkh-progress-body">
+                <code>{bulkEntry ? maskedHash(bulkEntry.hash) : '—'}</code>
+                <span>{stageLabel(bulkProgress.stage)}</span>
+                <span>{(bulkProgress.elapsedMs / 1000).toFixed(1)} с</span>
+              </div>
+              <div className="vkh-progress-track">
+                <span style={{ width: `${bulkProgress.total ? Math.min(100, (bulkProgress.completed / bulkProgress.total) * 100) : 0}%` }} />
+              </div>
+            </div>
+          ) : null}
           <div className="vkh-list">
             {pool.length ? pool.map(renderEntry) : <div className="vkh-empty">Общий пул пока пуст.</div>}
           </div>

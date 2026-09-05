@@ -95,6 +95,29 @@ function useWailsEvents() {
       EventsOn('log', (level: unknown, msg: unknown) => {
         logStore.push((level as LogLevel) ?? 'INFO', String(msg ?? ''));
       }),
+      EventsOn('diagnostic_event', (payload: unknown) => {
+        const record = asRecord(payload);
+        if (!record) return;
+        const rawLevel = String(record.level ?? 'DEBUG').toUpperCase();
+        const level: LogLevel = ['INFO', 'WARN', 'ERROR', 'DEBUG'].includes(rawLevel)
+          ? rawLevel as LogLevel
+          : 'DEBUG';
+        const parts = [
+          record.subsystem ? `[${String(record.subsystem)}]` : '[DIAG]',
+          record.operationId ? `op=${String(record.operationId)}` : '',
+          record.workerId ? `worker=${String(record.workerId)}` : '',
+          record.hashId ? `hash=${String(record.hashId)}` : '',
+          record.server ? `server=${String(record.server)}` : '',
+          record.stage ? `stage=${String(record.stage)}` : '',
+          record.action ? `action=${String(record.action)}` : '',
+          record.result ? `result=${String(record.result)}` : '',
+          record.attempt ? `attempt=${String(record.attempt)}` : '',
+          record.elapsedMs ? `elapsed=${String(record.elapsedMs)}ms` : '',
+          record.durationMs ? `duration=${String(record.durationMs)}ms` : '',
+          record.message ? String(record.message) : '',
+        ].filter(Boolean);
+        logStore.push(level, parts.join(' '));
+      }),
       EventsOn('error', (msg: unknown) => {
         const s = String(msg ?? '');
         connectionStore.setError(s);

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +28,8 @@ const (
 
 	vkHashCheckTTL      = 4 * time.Hour
 	vkHashErrorTTL      = 5 * time.Minute
-	vkHashProbeTimeout  = 55 * time.Second
+	vkHashProbeTimeout     = 30 * time.Second
+	vkHashPreflightTimeout = 15 * time.Second
 	maxAutoReplacements = 2
 	vkHashRegistryName  = "vk-hashes.json"
 )
@@ -299,7 +301,16 @@ func (a *App) AddVKHash(raw, source, profileName string) (VKHashEntry, error) {
 	}
 	a.onBridgeEvent("vk-hash-pool-changed", map[string]any{"hashId": entry.ID, "action": "added"})
 	if strings.TrimSpace(profileName) != "" {
-		_, _ = a.CheckVKHash(entry.ID, profileName)
+		if a.hashOps == nil {
+			a.hashOps = newVKHashOperationState()
+		}
+		go func(hashID, targetProfile string) {
+			ctx, operationID, done := a.hashOps.beginManual(a.appContext())
+			defer done()
+			probeCtx, cancel := context.WithTimeout(ctx, vkHashProbeTimeout)
+			defer cancel()
+			_, _ = a.checkVKHashCoordinated(probeCtx, hashID, targetProfile, operationID)
+		}(entry.ID, profileName)
 	}
 	return a.vkHashEntry(entry.ID)
 }
@@ -336,48 +347,160 @@ func (a *App) DeleteVKHash(id string) error {
 }
 
 func (a *App) CheckVKHash(id, profileName string) (VKHashCheckResult, error) {
-	ctx, done, err := a.beginVKOperation()
-	if err != nil {
-		return VKHashCheckResult{}, err
+	if a.hashOps == nil {
+		a.hashOps = newVKHashOperationState()
 	}
+	ctx, operationID, done := a.hashOps.beginManual(a.appContext())
 	defer done()
-	return a.checkVKHash(ctx, id, profileName)
+	return a.checkVKHashCoordinated(ctx, id, profileName, operationID)
+}
+
+func (a *App) CancelVKHashChecks() {
+	if a.hashOps != nil {
+		a.hashOps.cancelInteractive()
+	}
 }
 
 func (a *App) CheckAllVKHashes(profileName string) ([]VKHashCheckResult, error) {
-	if strings.TrimSpace(profileName) == "" {
+	profileName = sanitizeProfileName(profileName)
+	if profileName == "" {
 		return nil, errors.New("выберите сервер для проверки VK-хешей")
 	}
-	ctx, done, err := a.beginVKOperation()
+	if a.hashOps == nil {
+		a.hashOps = newVKHashOperationState()
+	}
+
+	ctx, operationID, done, err := a.hashOps.beginBulk(a.appContext())
 	if err != nil {
 		return nil, err
 	}
 	defer done()
+
 	entries := a.ListVKHashes()
-	results := make([]VKHashCheckResult, 0, len(entries))
+	targets := make([]VKHashEntry, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.InPool && !containsString(entry.UsedBy, profileName) {
-			continue
+		if entry.InPool || containsString(entry.UsedBy, profileName) {
+			targets = append(targets, entry)
 		}
-		if ctx.Err() != nil {
-			return results, errors.New("операция VK отменена")
-		}
-		result, err := a.checkVKHash(ctx, entry.ID, profileName)
-		if err != nil {
-			return results, err
-		}
-		results = append(results, result)
 	}
-	return results, nil
+
+	total := len(targets)
+	started := time.Now()
+	a.onBridgeEvent("vk-hash-bulk-started", map[string]any{
+		"operationId": operationID, "profileName": profileName, "total": total,
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, Server: profileName,
+		Stage: "bulk", Action: "start", Message: fmt.Sprintf("Bulk hash check started: %d targets", total),
+	})
+	if total == 0 {
+		a.onBridgeEvent("vk-hash-bulk-completed", map[string]any{
+			"operationId": operationID, "profileName": profileName, "completed": 0,
+			"total": 0, "state": "completed", "elapsedMs": int64(0),
+		})
+		return []VKHashCheckResult{}, nil
+	}
+
+	type checkEnvelope struct {
+		result VKHashCheckResult
+		err    error
+		hashID string
+	}
+	jobs := make(chan VKHashEntry)
+	out := make(chan checkEnvelope, total)
+	workers := vkHashBulkConcurrency
+	if workers > total {
+		workers = total
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for entry := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				result, checkErr := a.checkVKHashCoordinated(ctx, entry.ID, profileName, operationID)
+				out <- checkEnvelope{result: result, err: checkErr, hashID: entry.ID}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+		for _, entry := range targets {
+			select {
+			case jobs <- entry:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	results := make([]VKHashCheckResult, 0, total)
+	completed := 0
+	var firstErr error
+	for item := range out {
+		if item.err != nil {
+			if !errors.Is(item.err, context.Canceled) && !errors.Is(item.err, context.DeadlineExceeded) && firstErr == nil {
+				firstErr = item.err
+			}
+		} else if item.result.Status != "canceled" {
+			results = append(results, item.result)
+		}
+		completed++
+		a.onBridgeEvent("vk-hash-bulk-progress", map[string]any{
+			"operationId": operationID, "profileName": profileName,
+			"completed": completed, "total": total, "hashId": item.hashID,
+			"status": item.result.Status, "elapsedMs": time.Since(started).Milliseconds(),
+		})
+	}
+
+	state := "completed"
+	if ctx.Err() != nil {
+		state = "canceled"
+	} else if firstErr != nil {
+		state = "error"
+	}
+	a.onBridgeEvent("vk-hash-bulk-completed", map[string]any{
+		"operationId": operationID, "profileName": profileName,
+		"completed": completed, "total": total, "state": state,
+		"elapsedMs": time.Since(started).Milliseconds(),
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, Server: profileName,
+		Stage: "bulk", Action: "complete", Result: state,
+		DurationMs: time.Since(started).Milliseconds(),
+	})
+
+	if ctx.Err() != nil {
+		return results, ctx.Err()
+	}
+	return results, firstErr
 }
 
-func (a *App) checkVKHash(ctx context.Context, id, profileName string) (VKHashCheckResult, error) {
-	if a.bridge != nil && a.bridge.IsRunning() {
-		return VKHashCheckResult{}, errors.New("проверка VK-хешей недоступна во время активного подключения")
-	}
+func (a *App) checkVKHashCoordinated(ctx context.Context, id, profileName, operationID string) (VKHashCheckResult, error) {
 	profileName = sanitizeProfileName(profileName)
 	if profileName == "" {
 		return VKHashCheckResult{}, errors.New("выберите сервер для проверки VK-хеша")
+	}
+	if a.hashOps == nil {
+		a.hashOps = newVKHashOperationState()
+	}
+	return a.hashOps.run(ctx, vkHashProbeKey(id, profileName), func(probeCtx context.Context) (VKHashCheckResult, error) {
+		return a.checkVKHashProbe(probeCtx, id, profileName, operationID)
+	})
+}
+
+func (a *App) checkVKHashProbe(ctx context.Context, id, profileName, operationID string) (VKHashCheckResult, error) {
+	if a.bridge != nil && a.bridge.IsRunning() {
+		return VKHashCheckResult{}, errors.New("проверка VK-хешей недоступна во время активного подключения")
 	}
 
 	vkHashRegistryMu.Lock()
@@ -399,7 +522,18 @@ func (a *App) checkVKHash(ctx context.Context, id, profileName string) (VKHashCh
 		return VKHashCheckResult{}, err
 	}
 	settings := a.store.LoadSettings()
-	a.onBridgeEvent("vk-hash-check-started", map[string]any{"hashId": id, "profileName": profileName})
+	started := time.Now()
+	var progressMu sync.Mutex
+	stageStarted := make(map[string]time.Time)
+
+	a.onBridgeEvent("vk-hash-check-started", map[string]any{
+		"operationId": operationID, "hashId": id, "profileName": profileName,
+		"stage": "queued", "elapsedMs": int64(0),
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, HashID: id, Server: profileName,
+		Stage: "probe", Action: "start",
+	})
 
 	probeCtx, cancel := context.WithTimeout(ctx, vkHashProbeTimeout)
 	defer cancel()
@@ -411,16 +545,58 @@ func (a *App) checkVKHash(ctx context.Context, id, profileName string) (VKHashCh
 		TurnHost: profile.TurnHost,
 		TurnPort: profile.TurnPort,
 		ObfsMode: settings.ObfsMode,
+		OnProgress: func(progress core.HashProbeProgress) {
+			message, durationMs := splitProbeProgressDuration(progress.Message)
+			progressMu.Lock()
+			now := time.Now()
+			if progress.State == "running" {
+				if _, exists := stageStarted[progress.Stage]; !exists {
+					stageStarted[progress.Stage] = now
+				}
+			} else if durationMs == 0 {
+				if stageStart, exists := stageStarted[progress.Stage]; exists {
+					durationMs = now.Sub(stageStart).Milliseconds()
+					delete(stageStarted, progress.Stage)
+				}
+			}
+			progressMu.Unlock()
+
+			a.onBridgeEvent("vk-hash-check-progress", map[string]any{
+				"operationId": operationID, "hashId": id, "profileName": profileName,
+				"stage": progress.Stage, "state": progress.State, "message": message,
+				"elapsedMs": progress.ElapsedMs, "durationMs": durationMs, "attempt": progress.Attempt,
+			})
+			a.emitDiagnostic(diagnosticEvent{
+				Subsystem: "HASH", OperationID: operationID, HashID: id, Server: profileName,
+				Stage: progress.Stage, Action: progress.State, Attempt: progress.Attempt,
+				ElapsedMs: progress.ElapsedMs, DurationMs: durationMs, Message: message,
+			})
+		},
 	})
+
+	result := VKHashCheckResult{
+		HashID: id, Hash: entry.Hash, ProfileName: profileName,
+		Status: string(probe.Status), CheckedAt: time.Now().UnixMilli(),
+		ErrorType: string(probe.ErrorType), Message: probe.Message, LatencyMs: probe.LatencyMs,
+	}
+
+	if probe.ErrorType == core.HashProbeErrorCanceled {
+		result.Status = "canceled"
+		a.onBridgeEvent("vk-hash-check-result", map[string]any{
+			"operationId": operationID, "hashId": id, "profileName": profileName,
+			"status": result.Status, "errorType": result.ErrorType,
+			"latencyMs": result.LatencyMs, "elapsedMs": time.Since(started).Milliseconds(),
+		})
+		return result, nil
+	}
+
 	check := VKHashCheck{
-		Status:    string(probe.Status),
-		CheckedAt: time.Now().UnixMilli(),
-		ErrorType: string(probe.ErrorType),
-		Message:   probe.Message,
-		LatencyMs: probe.LatencyMs,
+		Status: result.Status, CheckedAt: result.CheckedAt,
+		ErrorType: result.ErrorType, Message: result.Message, LatencyMs: result.LatencyMs,
 	}
 	if check.Status == "" {
 		check.Status = vkHashStatusError
+		result.Status = check.Status
 	}
 
 	vkHashRegistryMu.Lock()
@@ -440,23 +616,57 @@ func (a *App) checkVKHash(ctx context.Context, id, profileName string) (VKHashCh
 		return VKHashCheckResult{}, err
 	}
 
-	result := VKHashCheckResult{
-		HashID: id, Hash: entry.Hash, ProfileName: profileName,
-		Status: check.Status, CheckedAt: check.CheckedAt,
-		ErrorType: check.ErrorType, Message: check.Message, LatencyMs: check.LatencyMs,
-	}
 	a.onBridgeEvent("vk-hash-check-result", map[string]any{
-		"hashId": id, "profileName": profileName, "status": result.Status,
-		"errorType": result.ErrorType, "latencyMs": result.LatencyMs,
+		"operationId": operationID, "hashId": id, "profileName": profileName,
+		"status": result.Status, "errorType": result.ErrorType,
+		"latencyMs": result.LatencyMs, "elapsedMs": time.Since(started).Milliseconds(),
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, HashID: id, Server: profileName,
+		Stage: "probe", Action: "complete", Result: result.Status,
+		ElapsedMs: time.Since(started).Milliseconds(), DurationMs: time.Since(started).Milliseconds(), Message: result.ErrorType,
 	})
 	return result, nil
 }
 
+func splitProbeProgressDuration(message string) (string, int64) {
+	trimmed := strings.TrimSpace(message)
+	if !strings.HasSuffix(trimmed, " ms)") {
+		return trimmed, 0
+	}
+	start := strings.LastIndex(trimmed, " (")
+	if start < 0 {
+		return trimmed, 0
+	}
+	raw := strings.TrimSuffix(trimmed[start+2:], " ms)")
+	ms, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || ms < 0 {
+		return trimmed, 0
+	}
+	return strings.TrimSpace(trimmed[:start]), ms
+}
+
 func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
+	if a.hashOps == nil {
+		a.hashOps = newVKHashOperationState()
+	}
+	ctx, operationID, done := a.hashOps.beginManual(a.appContext())
+	defer done()
+	return a.replaceVKHashWithContext(ctx, id, profileName, operationID)
+}
+
+func (a *App) replaceVKHashWithContext(ctx context.Context, id, profileName, operationID string) (VKHashEntry, error) {
 	profileName = sanitizeProfileName(profileName)
 	if profileName == "" {
 		return VKHashEntry{}, errors.New("выберите сервер для замены VK-хеша")
 	}
+	if ctx == nil {
+		ctx = a.appContext()
+	}
+	if err := ctx.Err(); err != nil {
+		return VKHashEntry{}, err
+	}
+
 	entries := a.ListVKHashes()
 	var old VKHashEntry
 	found := false
@@ -470,14 +680,28 @@ func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
 	if !found {
 		return VKHashEntry{}, errors.New("VK-хеш не найден")
 	}
-	a.onBridgeEvent("vk-hash-replacement-started", map[string]any{"hashId": id, "profileName": profileName})
+	a.onBridgeEvent("vk-hash-replacement-started", map[string]any{
+		"operationId": operationID, "hashId": id, "profileName": profileName,
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, HashID: id, Server: profileName,
+		Stage: "replacement", Action: "start",
+	})
 
-	generated, err := a.GenerateVKHashes(1, existing)
+	vkCtx, vkDone, err := a.beginVKOperationWithParent(ctx)
 	if err != nil {
 		return VKHashEntry{}, err
 	}
+	generated, generateErr := a.generateVKHashesWithContext(vkCtx, 1, existing)
+	vkDone()
+	if generateErr != nil {
+		return VKHashEntry{}, generateErr
+	}
 	if len(generated) != 1 {
 		return VKHashEntry{}, errors.New("VK не вернул новый хеш")
+	}
+	if err := ctx.Err(); err != nil {
+		return VKHashEntry{}, err
 	}
 
 	vkHashRegistryMu.Lock()
@@ -495,13 +719,20 @@ func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
 		return VKHashEntry{}, err
 	}
 
-	checked, err := a.CheckVKHash(newEntry.ID, profileName)
+	checked, err := a.checkVKHashCoordinated(ctx, newEntry.ID, profileName, operationID)
 	if err != nil || checked.Status != vkHashStatusValid {
 		a.cleanupOrphanVKHash(newEntry.ID)
 		if err != nil {
 			return VKHashEntry{}, err
 		}
+		if checked.Status == "canceled" {
+			return VKHashEntry{}, context.Canceled
+		}
 		return VKHashEntry{}, fmt.Errorf("новый VK-хеш не прошёл проверку: %s", checked.Message)
+	}
+	if err := ctx.Err(); err != nil {
+		a.cleanupOrphanVKHash(newEntry.ID)
+		return VKHashEntry{}, err
 	}
 
 	profile, profileErr := a.store.LoadProfile(profileName)
@@ -558,10 +789,16 @@ func (a *App) ReplaceVKHash(id, profileName string) (VKHashEntry, error) {
 		scope = "pool"
 	}
 	a.onBridgeEvent("vk-hash-replaced", map[string]any{
-		"profileName": profileName, "oldHash": old.Hash, "newHash": newEntry.Hash, "scope": scope,
+		"operationId": operationID, "profileName": profileName,
+		"oldHash": old.Hash, "newHash": newEntry.Hash, "scope": scope,
 	})
 	a.onBridgeEvent("vk-hash-replacement-completed", map[string]any{
-		"oldHashId": old.ID, "newHashId": newEntry.ID, "profileName": profileName, "scope": scope,
+		"operationId": operationID, "oldHashId": old.ID, "newHashId": newEntry.ID,
+		"profileName": profileName, "scope": scope,
+	})
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "HASH", OperationID: operationID, HashID: newEntry.ID, Server: profileName,
+		Stage: "replacement", Action: "complete", Result: "valid",
 	})
 	return a.vkHashEntry(newEntry.ID)
 }
@@ -676,7 +913,10 @@ func (a *App) storedVKHashCheck(id, profileName string) (VKHashCheck, bool) {
 	return check, ok
 }
 
-func (a *App) prepareVKHashes(params ConnectParams) ([]string, error) {
+func (a *App) prepareVKHashes(parent context.Context, params ConnectParams, operationID string) ([]string, error) {
+	if parent == nil {
+		parent = a.appContext()
+	}
 	localHashes, err := normalizeVKHashList(params.Hashes)
 	if err != nil {
 		return nil, err
@@ -702,46 +942,143 @@ func (a *App) prepareVKHashes(params ConnectParams) ([]string, error) {
 		return hashesFromEntries(candidates), nil
 	}
 
-	result := make([]string, 0, len(candidates))
-	replacementAttempts := 0
-	var lastReplacementErr error
+	now := time.Now()
+	freshValid := make([]string, 0, len(candidates))
+	fallback := make([]VKHashEntry, 0, len(candidates))
+	stale := make([]VKHashEntry, 0, len(candidates))
+	confirmedInvalid := make(map[string]bool)
+
 	for _, candidate := range candidates {
-		check, hasCheck := a.storedVKHashCheck(candidate.ID, params.ProfileName)
-		if !hasCheck || !isVKHashCheckFresh(check, time.Now()) {
-			checked, checkErr := a.CheckVKHash(candidate.ID, params.ProfileName)
-			if checkErr != nil {
-				return nil, checkErr
-			}
-			check = VKHashCheck{
-				Status: checked.Status, CheckedAt: checked.CheckedAt,
-				ErrorType: checked.ErrorType, Message: checked.Message, LatencyMs: checked.LatencyMs,
-			}
+		check, ok := a.storedVKHashCheck(candidate.ID, params.ProfileName)
+		if !ok || !isVKHashCheckFresh(check, now) {
+			stale = append(stale, candidate)
+			fallback = append(fallback, candidate)
+			continue
 		}
 
 		switch check.Status {
 		case vkHashStatusValid:
-			result = append(result, candidate.Hash)
+			freshValid = append(freshValid, candidate.Hash)
+			fallback = append(fallback, candidate)
 		case vkHashStatusError:
-			// Infrastructure failures are fail-open: they do not prove that a hash is invalid.
-			result = append(result, candidate.Hash)
+			fallback = append(fallback, candidate)
 		case vkHashStatusInvalid:
-			if policy.AutoReplace && replacementAttempts < maxAutoReplacements {
-				replacementAttempts++
-				newEntry, replaceErr := a.ReplaceVKHash(candidate.ID, params.ProfileName)
-				if replaceErr == nil {
-					result = append(result, newEntry.Hash)
-				} else {
-					lastReplacementErr = replaceErr
-				}
-			}
+			confirmedInvalid[candidate.ID] = true
 		default:
-			result = append(result, candidate.Hash)
+			stale = append(stale, candidate)
+			fallback = append(fallback, candidate)
 		}
 	}
 
-	result = uniqueVKHashes(result)
-	if len(result) > 0 {
-		return result, nil
+	if len(freshValid) > 0 {
+		a.emitDiagnostic(diagnosticEvent{
+			Subsystem: "HASH", OperationID: operationID, Server: params.ProfileName,
+			Stage: "preflight", Action: "cache-hit", Result: "valid",
+			Message: fmt.Sprintf("Using %d fresh valid hash(es)", len(freshValid)),
+		})
+		return uniqueVKHashes(freshValid), nil
+	}
+
+	for _, candidate := range fallback {
+		if check, ok := a.storedVKHashCheck(candidate.ID, params.ProfileName); ok &&
+			isVKHashCheckFresh(check, now) && check.Status == vkHashStatusError {
+			a.emitDiagnostic(diagnosticEvent{
+				Subsystem: "HASH", OperationID: operationID, HashID: candidate.ID,
+				Server: params.ProfileName, Stage: "preflight", Action: "cache-hit",
+				Result: "fail-open", Message: "Recent infrastructure error; reusing hash without another probe",
+			})
+			return hashesFromEntries(fallback), nil
+		}
+	}
+
+	preflightCtx, cancel := context.WithTimeout(parent, vkHashPreflightTimeout)
+	defer cancel()
+	started := time.Now()
+
+	for _, candidate := range stale {
+		if preflightCtx.Err() != nil {
+			break
+		}
+		checked, checkErr := a.checkVKHashCoordinated(preflightCtx, candidate.ID, params.ProfileName, operationID)
+		if checkErr != nil {
+			if errors.Is(checkErr, context.Canceled) || errors.Is(checkErr, context.DeadlineExceeded) {
+				break
+			}
+			return nil, checkErr
+		}
+
+		switch checked.Status {
+		case vkHashStatusValid:
+			a.emitDiagnostic(diagnosticEvent{
+				Subsystem: "HASH", OperationID: operationID, HashID: candidate.ID,
+				Server: params.ProfileName, Stage: "preflight", Action: "complete",
+				Result: "valid", DurationMs: time.Since(started).Milliseconds(),
+			})
+			return []string{candidate.Hash}, nil
+		case vkHashStatusError:
+			usableNow := make([]VKHashEntry, 0, len(fallback))
+			for _, fallbackCandidate := range fallback {
+				if !confirmedInvalid[fallbackCandidate.ID] {
+					usableNow = append(usableNow, fallbackCandidate)
+				}
+			}
+			a.emitDiagnostic(diagnosticEvent{
+				Subsystem: "HASH", OperationID: operationID, HashID: candidate.ID,
+				Server: params.ProfileName, Stage: "preflight", Action: "complete",
+				Result: "fail-open", DurationMs: time.Since(started).Milliseconds(),
+				Message: checked.ErrorType,
+			})
+			return hashesFromEntries(usableNow), nil
+		case vkHashStatusInvalid:
+			confirmedInvalid[candidate.ID] = true
+		case "canceled":
+			break
+		}
+	}
+
+	if parent.Err() != nil {
+		return nil, fmt.Errorf("подключение отменено: %w", parent.Err())
+	}
+
+	usable := make([]VKHashEntry, 0, len(fallback))
+	for _, candidate := range fallback {
+		if !confirmedInvalid[candidate.ID] {
+			usable = append(usable, candidate)
+		}
+	}
+	if len(usable) > 0 {
+		a.emitDiagnostic(diagnosticEvent{
+			Subsystem: "HASH", OperationID: operationID, Server: params.ProfileName,
+			Stage: "preflight", Action: "deadline", Result: "fail-open",
+			DurationMs: time.Since(started).Milliseconds(),
+			Message: fmt.Sprintf("Preflight deadline reached; using %d non-invalid hash(es)", len(usable)),
+		})
+		return hashesFromEntries(usable), nil
+	}
+
+	var lastReplacementErr error
+	if policy.AutoReplace {
+		replacementAttempts := 0
+		for _, candidate := range candidates {
+			if !confirmedInvalid[candidate.ID] || replacementAttempts >= maxAutoReplacements {
+				continue
+			}
+			replacementAttempts++
+			if preflightCtx.Err() != nil {
+				break
+			}
+			newEntry, replaceErr := a.replaceVKHashWithContext(preflightCtx, candidate.ID, params.ProfileName, operationID)
+			if replaceErr == nil {
+				return []string{newEntry.Hash}, nil
+			}
+			lastReplacementErr = replaceErr
+		}
+	}
+	if parent.Err() != nil {
+		return nil, fmt.Errorf("подключение отменено: %w", parent.Err())
+	}
+	if preflightCtx.Err() != nil {
+		return nil, fmt.Errorf("рабочих VK-хешей не осталось; preflight timeout: %w", preflightCtx.Err())
 	}
 	if lastReplacementErr != nil {
 		return nil, fmt.Errorf("рабочих VK-хешей не осталось; автозамена не удалась: %w", lastReplacementErr)

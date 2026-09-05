@@ -26,16 +26,26 @@ const (
 	HashProbeErrorWRAP        HashProbeErrorType = "wrap"
 	HashProbeErrorCanceled    HashProbeErrorType = "canceled"
 	HashProbeErrorSetup       HashProbeErrorType = "setup"
+	HashProbeErrorTimeout     HashProbeErrorType = "timeout"
 )
 
+type HashProbeProgress struct {
+	Stage     string
+	State     string
+	Message   string
+	ElapsedMs int64
+	Attempt   int
+}
+
 type HashProbeConfig struct {
-	PeerAddr string
-	Password string
-	Hash     string
-	DeviceID string
-	TurnHost string
-	TurnPort string
-	ObfsMode string
+	PeerAddr   string
+	Password   string
+	Hash       string
+	DeviceID   string
+	TurnHost   string
+	TurnPort   string
+	ObfsMode   string
+	OnProgress func(HashProbeProgress)
 }
 
 type HashProbeResult struct {
@@ -65,23 +75,31 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 		return hashProbeErrorResult(HashProbeErrorSetup, "server password is empty", started)
 	}
 
+	emitHashProbeProgress(cfg, started, "dns", "running", "Разрешение адреса сервера", 0)
 	peer, err := net.ResolveUDPAddr("udp", strings.TrimSpace(cfg.PeerAddr))
 	if err != nil {
+		emitHashProbeProgress(cfg, started, "dns", "error", "Адрес сервера не разрешён", 0)
 		return hashProbeErrorResult(HashProbeErrorNetwork, "server address could not be resolved", started)
 	}
+	emitHashProbeProgress(cfg, started, "dns", "success", "Адрес сервера разрешён", 0)
 	wrapKey, err := deriveWrapKey(cfg.Password)
 	if err != nil {
 		return hashProbeErrorResult(HashProbeErrorSetup, "WRAP key could not be derived", started)
 	}
 
 	streamID := int(900000 + hashProbeSequence.Add(1))
+	emitHashProbeProgress(cfg, started, "credentials", "running", "Получение VK-кредов", 0)
 	turnUser, turnPass, turnURLs, err := fetchVkCredsSerialized(ctx, cfg.Hash, streamID)
 	if err != nil {
-		return classifyHashProbeCredentialError(err, started)
+		result := classifyHashProbeCredentialError(err, started)
+		emitHashProbeProgress(cfg, started, "credentials", "error", result.Message, 0)
+		return result
 	}
 	if len(turnURLs) == 0 {
+		emitHashProbeProgress(cfg, started, "credentials", "error", "VK не вернул TURN endpoints", 0)
 		return hashProbeErrorResult(HashProbeErrorVK, "VK returned no TURN endpoints", started)
 	}
+	emitHashProbeProgress(cfg, started, "credentials", "success", "VK-креды получены", 0)
 
 	localConn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -116,6 +134,18 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 		Hashes:   []string{cfg.Hash},
 		WrapKey:  wrapKey,
 		ObfsMode: obfsMode,
+		Trace: func(_ int, stage, state, message string, duration time.Duration) {
+			progress := HashProbeProgress{
+				Stage: stage, State: state, Message: message,
+				ElapsedMs: elapsedMilliseconds(started),
+			}
+			if duration > 0 {
+				progress.Message = fmt.Sprintf("%s (%d ms)", message, duration.Milliseconds())
+			}
+			if cfg.OnProgress != nil {
+				cfg.OnProgress(progress)
+			}
+		},
 	}
 
 	var lastSessionErr *SessionError
@@ -123,6 +153,7 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 		if ctx.Err() != nil {
 			return classifyHashProbeContextError(ctx.Err(), started)
 		}
+		emitHashProbeProgress(cfg, started, "turn", "running", "Проверка TURN endpoint", index+1)
 		sessionCtx, sessionCancel := context.WithCancel(ctx)
 		done := make(chan *SessionError, 1)
 		sessionID := 910000 + index
@@ -143,6 +174,7 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 					ticker.Stop()
 					sessionCancel()
 					cancel()
+					emitHashProbeProgress(cfg, started, "completed", "success", "VK-хеш прошёл functional probe", index+1)
 					return HashProbeResult{
 						Status:    HashProbeValid,
 						Message:   "VK hash completed VK/TURN/WRAP/DTLS probe",
@@ -154,6 +186,7 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 				sessionCancel()
 				if stats.ActiveConnections.Load() > 0 {
 					cancel()
+					emitHashProbeProgress(cfg, started, "completed", "success", "VK-хеш прошёл functional probe", index+1)
 					return HashProbeResult{
 						Status:    HashProbeValid,
 						Message:   "VK hash completed VK/TURN/WRAP/DTLS probe",
@@ -222,7 +255,20 @@ func classifyHashProbeContextError(err error, started time.Time) HashProbeResult
 	if errors.Is(err, context.Canceled) {
 		return hashProbeErrorResult(HashProbeErrorCanceled, "VK hash check was canceled", started)
 	}
-	return hashProbeErrorResult(HashProbeErrorNetwork, "VK hash check timed out", started)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return hashProbeErrorResult(HashProbeErrorTimeout, "VK hash check timed out", started)
+	}
+	return hashProbeErrorResult(HashProbeErrorNetwork, "VK hash check failed", started)
+}
+
+func emitHashProbeProgress(cfg HashProbeConfig, started time.Time, stage, state, message string, attempt int) {
+	if cfg.OnProgress == nil {
+		return
+	}
+	cfg.OnProgress(HashProbeProgress{
+		Stage: stage, State: state, Message: message,
+		ElapsedMs: elapsedMilliseconds(started), Attempt: attempt,
+	})
 }
 
 func hashProbeErrorResult(errorType HashProbeErrorType, message string, started time.Time) HashProbeResult {

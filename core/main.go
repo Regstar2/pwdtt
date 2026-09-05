@@ -64,6 +64,8 @@ type Config struct {
 	CaptchaMode string   // auto/rjs/wv
 	ObfsMode    string   // audio/video
 	Fingerprint string   // chrome/android/ios/safari/firefox
+	OperationID string   // correlation id for diagnostics
+	DebugLogging bool    // emit verbose structured diagnostics
 }
 
 // ═══════════════════════════════════════════════════
@@ -80,6 +82,7 @@ type Core struct {
 	events            chan Event
 	startOnce         sync.Once // guard от двойного Start()
 	once              sync.Once // guard от двойного Stop()
+	debugLogging      atomic.Bool
 }
 
 // activeCore — текущий запущенный экземпляр ядра.
@@ -123,6 +126,7 @@ func New(cfg Config) *Core {
 	}
 	c.captchaMode.Store(normalizeCaptchaMode(cfg.CaptchaMode))
 	c.vkAuthMode.Store(normalizeVKAuthMode("vkcalls"))
+	c.debugLogging.Store(cfg.DebugLogging)
 	return c
 }
 
@@ -216,6 +220,9 @@ func (c *Core) start() error {
 		Hashes:   c.cfg.Hashes,
 		WrapKey:  wrapKey,
 		ObfsMode: c.cfg.ObfsMode,
+	}
+	tp.Trace = func(sessionID int, stage, state, message string, duration time.Duration) {
+		c.emitDiagnostic("DEBUG", "CORE", stage, state, message, sessionID, duration)
 	}
 
 	// Локальный UDP сокет
@@ -369,6 +376,10 @@ func (c *Core) Pause() { atomic.StoreInt32(&c.pauseFlag, 1) }
 // Resume возобновляет воркеры.
 func (c *Core) Resume() { atomic.StoreInt32(&c.pauseFlag, 0) }
 
+func (c *Core) SetDebugLogging(enabled bool) {
+	c.debugLogging.Store(enabled)
+}
+
 // SolveCaptcha передаёт токен капчи в ядро.
 // Атомарно: drain старого + запись нового.
 func (c *Core) SolveCaptcha(token string) {
@@ -515,6 +526,14 @@ func (lw *logWriter) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	level := classifyLevel(msg)
+
+	if lw.core.debugLogging.Load() && level != "ERROR" {
+		if level == "INFO" {
+			level = "DEBUG"
+		}
+		lw.core.emit(Event{Type: EventLog, Level: level, Message: msg})
+		return len(p), nil
+	}
 
 	// ВСЕ ошибки — показываем
 	if level == "ERROR" {

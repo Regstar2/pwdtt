@@ -30,6 +30,16 @@ describe('logStore', () => {
     }
   });
 
+  it('push: DEBUG сохраняет каждую трассировочную запись', () => {
+    logStore.push('DEBUG', '[HASH] stage=turn action=start');
+    logStore.push('DEBUG', '[HASH] stage=turn action=complete');
+
+    const entries = logStore.getAll();
+    expect(entries.length).toBe(2);
+    expect(entries[0].level).toBe('DEBUG');
+    expect(entries[1].level).toBe('DEBUG');
+  });
+
   it('push: дубликаты увеличивают count', () => {
     logStore.push('INFO', 'same message');
     logStore.push('INFO', 'same message');
@@ -40,33 +50,56 @@ describe('logStore', () => {
     expect(entries[0].count).toBe(3);
   });
 
-  it('push: записи с одинаковым тегом обновляются', () => {
+  it('push: разные события одного subsystem не схлопываются', () => {
     logStore.push('INFO', '[WG] Connecting...');
     logStore.push('INFO', '[WG] Connected!');
 
     const entries = logStore.getAll();
-    expect(entries.length).toBe(1);
-    expect(entries[0].message).toBe('[WG] Connected!');
-    expect(entries[0].count).toBe(2);
+    expect(entries.length).toBe(2);
+    expect(entries[0].message).toBe('[WG] Connecting...');
+    expect(entries[1].message).toBe('[WG] Connected!');
+    expect(entries[0].count).toBe(1);
+    expect(entries[1].count).toBe(1);
   });
 
-  it('push: тег с #номером нормализуется', () => {
+  it('push: повторённое событие перемещается в конец хронологии', () => {
+    logStore.push('INFO', '[ЯДРО] Рабочая DTLS-сессия установлена');
+    logStore.push('DEBUG', '[CORE] middle');
+    logStore.push('INFO', '[ЯДРО] Рабочая DTLS-сессия установлена');
+
+    const entries = logStore.getAll();
+    expect(entries.length).toBe(2);
+    expect(entries[0].message).toBe('[CORE] middle');
+    expect(entries[1].message).toBe('[ЯДРО] Рабочая DTLS-сессия установлена');
+    expect(entries[1].count).toBe(2);
+  });
+
+  it('push: разные worker события сохраняются отдельно', () => {
     logStore.push('INFO', '[Worker #1] Running');
     logStore.push('INFO', '[Worker #2] Running');
 
     const entries = logStore.getAll();
-    // Оба имеют тег "Worker" (номера обрезаются)
-    expect(entries.length).toBe(1);
-    expect(entries[0].count).toBe(2);
+    expect(entries.length).toBe(2);
   });
 
-  it('push: тег с числом в конце нормализуется', () => {
+  it('push: разные сообщения Peer сохраняются отдельно', () => {
     logStore.push('INFO', '[Peer] Connected 1');
     logStore.push('INFO', '[Peer] Connected 2');
 
     const entries = logStore.getAll();
-    expect(entries.length).toBe(1);
-    expect(entries[0].count).toBe(2);
+    expect(entries.length).toBe(2);
+  });
+
+  it('push: STATS остаётся обновляемым snapshot', () => {
+    logStore.push('INFO', '[STATS] Активных: 8, Трафик: 0.08 МБ');
+    logStore.push('DEBUG', '[CORE] between stats');
+    logStore.push('INFO', '[STATS] Активных: 9, Трафик: 0.10 МБ');
+
+    const entries = logStore.getAll();
+    expect(entries.length).toBe(2);
+    expect(entries[0].message).toBe('[CORE] between stats');
+    expect(entries[1].message).toBe('[STATS] Активных: 9, Трафик: 0.10 МБ');
+    expect(entries[1].count).toBe(2);
   });
 
   it('clear: очищает все записи', () => {

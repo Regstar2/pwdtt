@@ -434,6 +434,7 @@ type TurnParams struct {
 	Hashes   []string
 	WrapKey  []byte
 	ObfsMode string
+	Trace    func(sessionID int, stage, state, message string, duration time.Duration)
 }
 
 type Credentials struct {

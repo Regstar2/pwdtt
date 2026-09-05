@@ -10,6 +10,8 @@ export function CheckVKHash(arg1:string,arg2:string):Promise<backend.VKHashCheck
 
 export function CancelVKOperation():Promise<void>;
 
+export function CancelVKHashChecks():Promise<void>;
+
 export function CheckIP():Promise<backend.IPInfo>;
 
 export function CheckUpdate():Promise<backend.UpdateInfo>;
@@ -27,6 +29,8 @@ export function GenerateReport(arg1:Array<backend.LogEntry>):Promise<string>;
 export function GenerateVKHashes(arg1:number,arg2:Array<string>):Promise<Array<string>>;
 
 export function GetAutoStart():Promise<boolean>;
+
+export function GetDebugLogging():Promise<boolean>;
 
 export function GetObfsAccepted():Promise<boolean>;
 
@@ -53,6 +57,8 @@ export function ReplaceVKHash(arg1:string,arg2:string):Promise<backend.VKHashEnt
 export function SaveProfile(arg1:string,arg2:backend.ProfileData):Promise<void>;
 
 export function SetAutoStart(arg1:boolean):Promise<void>;
+
+export function SetDebugLogging(arg1:boolean):Promise<void>;
 
 export function SetObfsAccepted(arg1:boolean):Promise<void>;
 

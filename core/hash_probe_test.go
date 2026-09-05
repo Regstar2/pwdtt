@@ -37,3 +37,10 @@ func TestHashProbeCancellationIsError(t *testing.T) {
 		t.Fatalf("status=%q errorType=%q", result.Status, result.ErrorType)
 	}
 }
+
+func TestHashProbeDeadlineIsTimeout(t *testing.T) {
+	result := classifyHashProbeContextError(context.DeadlineExceeded, time.Now())
+	if result.Status != HashProbeError || result.ErrorType != HashProbeErrorTimeout {
+		t.Fatalf("status=%q errorType=%q", result.Status, result.ErrorType)
+	}
+}

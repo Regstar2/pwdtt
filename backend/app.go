@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os/exec"
 	"runtime"
@@ -24,6 +25,9 @@ type App struct {
 	vkClient *vkAPIClient
 	vkMu     sync.Mutex
 	vkCancel context.CancelFunc
+	hashOps       *vkHashOperationState
+	connectMu     sync.Mutex
+	connectCancel context.CancelFunc
 }
 
 // NewApp создаёт App. Вызывается из main() до wails.Run().
@@ -31,6 +35,7 @@ func NewApp() *App {
 	return &App{
 		store:    NewStore(),
 		vkClient: newVKAPIClient(),
+		hashOps:  newVKHashOperationState(),
 	}
 }
 
@@ -65,16 +70,68 @@ func (a *App) Shutdown(ctx context.Context) {
 // ═══════════════════════════════════════════════════
 
 func (a *App) Connect(params ConnectParams) error {
-	hashes, err := a.prepareVKHashes(params)
+	if a.hashOps == nil {
+		a.hashOps = newVKHashOperationState()
+	}
+	a.hashOps.cancelInteractive()
+
+	a.connectMu.Lock()
+	if a.connectCancel != nil {
+		a.connectMu.Unlock()
+		return errors.New("подключение уже выполняется")
+	}
+	connectCtx, cancelConnect := context.WithCancel(a.appContext())
+	a.connectCancel = cancelConnect
+	a.connectMu.Unlock()
+	defer func() {
+		cancelConnect()
+		a.connectMu.Lock()
+		a.connectCancel = nil
+		a.connectMu.Unlock()
+	}()
+
+	operationID := newOperationID("connect")
+	started := time.Now()
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "CONNECT", OperationID: operationID, Stage: "preflight",
+		Action: "start", Server: params.ProfileName,
+	})
+
+	hashes, err := a.prepareVKHashes(connectCtx, params, operationID)
 	if err != nil {
+		a.emitDiagnostic(diagnosticEvent{
+			Level: "ERROR", Subsystem: "CONNECT", OperationID: operationID,
+			Stage: "preflight", Action: "complete", Result: "error",
+			Server: params.ProfileName, DurationMs: time.Since(started).Milliseconds(),
+			Message: err.Error(),
+		})
 		return err
 	}
+	if err := connectCtx.Err(); err != nil {
+		return fmt.Errorf("подключение отменено: %w", err)
+	}
 	params.Hashes = hashes
+	params.OperationID = operationID
+
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "CONNECT", OperationID: operationID, Stage: "preflight",
+		Action: "complete", Result: "ok", Server: params.ProfileName,
+		DurationMs: time.Since(started).Milliseconds(),
+		Message: "VK hash preflight completed",
+	})
 	return a.bridge.Connect(params)
 }
 
 func (a *App) Disconnect() {
-	a.bridge.Disconnect()
+	a.connectMu.Lock()
+	cancel := a.connectCancel
+	a.connectMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if a.bridge != nil {
+		a.bridge.Disconnect()
+	}
 }
 
 func (a *App) IsRunning() bool {
@@ -214,13 +271,23 @@ func (a *App) CancelVKOperation() {
 // INTERNAL
 // ═══════════════════════════════════════════════════
 
+func (a *App) appContext() context.Context {
+	if a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
+}
+
 func (a *App) beginVKOperation() (context.Context, func(), error) {
+	return a.beginVKOperationWithParent(a.appContext())
+}
+
+func (a *App) beginVKOperationWithParent(parent context.Context) (context.Context, func(), error) {
 	a.vkMu.Lock()
 	defer a.vkMu.Unlock()
 	if a.vkCancel != nil {
 		return nil, nil, errors.New("операция VK уже выполняется")
 	}
-	parent := a.ctx
 	if parent == nil {
 		parent = context.Background()
 	}
