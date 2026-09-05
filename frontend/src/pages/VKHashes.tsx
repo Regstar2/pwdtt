@@ -326,8 +326,14 @@ export default function VKHashes() {
       await refresh();
       toastStore.show('Проверка VK-хешей завершена');
     } catch (error) {
-      setBulkProgress(previous => previous ? { ...previous, running: false, state: 'error' } : null);
-      toastStore.show(errorMessage(error), 5000);
+      const message = errorMessage(error);
+      if (/canceled|cancelled|отмен/i.test(message)) {
+        setBulkProgress(previous => previous ? { ...previous, running: false, state: 'canceled' } : null);
+        toastStore.show('Проверка VK-хешей отменена');
+      } else {
+        setBulkProgress(previous => previous ? { ...previous, running: false, state: 'error' } : null);
+        toastStore.show(message, 5000);
+      }
     }
   };
 
