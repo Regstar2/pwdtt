@@ -60,6 +60,18 @@ describe('logStore', () => {
     expect(entries[0].count).toBe(2);
   });
 
+  it('push: обновлённая группа перемещается в конец хронологии', () => {
+    logStore.push('INFO', '[WG] first');
+    logStore.push('DEBUG', '[CORE] middle');
+    logStore.push('INFO', '[WG] latest');
+
+    const entries = logStore.getAll();
+    expect(entries.length).toBe(2);
+    expect(entries[0].message).toBe('[CORE] middle');
+    expect(entries[1].message).toBe('[WG] latest');
+    expect(entries[1].count).toBe(2);
+  });
+
   it('push: тег с #номером нормализуется', () => {
     logStore.push('INFO', '[Worker #1] Running');
     logStore.push('INFO', '[Worker #2] Running');
