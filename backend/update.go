@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	updateAPIURL                = "https://api.github.com/repos/Regstar2/PWDTT/releases/latest"
-	updateReleaseURL            = "https://github.com/Regstar2/PWDTT/releases/latest"
-	updateExpandedAssetsBaseURL = "https://github.com/Regstar2/PWDTT/releases/expanded_assets/"
-	maxReleaseBody              = 2 << 20
+	updateAPIURL      = "https://api.github.com/repos/Regstar2/PWDTT/releases/latest"
+	updateReleaseURL  = "https://github.com/Regstar2/PWDTT/releases/latest"
+	maxReleaseBody    = 2 << 20
 )
 
 // UpdateInfo describes an installable update for the current platform.
@@ -110,7 +109,11 @@ func checkUpdateViaWeb(client *http.Client, currentVersion, goos, goarch string)
 		return &UpdateInfo{Available: false, Version: latest}, nil
 	}
 
-	downloadURL, found, err := findKnownReleaseAsset(client, tag, assetName)
+	downloadURL, err := releaseAssetURL(tag, assetName)
+	if err != nil {
+		return nil, err
+	}
+	found, err := releaseAssetExists(client, downloadURL)
 	if err != nil {
 		return nil, err
 	}
@@ -186,44 +189,47 @@ func knownReleaseAssetName(goos, goarch string) string {
 	return ""
 }
 
-func findKnownReleaseAsset(client *http.Client, tag, assetName string) (string, bool, error) {
-	if !isComparableVersion(strings.TrimPrefix(tag, "v")) {
-		return "", false, fmt.Errorf("invalid release tag %q", tag)
+func releaseAssetURL(tag, assetName string) (string, error) {
+	latest := strings.TrimPrefix(strings.TrimSpace(tag), "v")
+	if !isComparableVersion(latest) {
+		return "", fmt.Errorf("invalid release tag %q", tag)
+	}
+	if strings.TrimSpace(assetName) == "" || strings.ContainsAny(assetName, "/\\") {
+		return "", fmt.Errorf("invalid release asset name %q", assetName)
 	}
 
-	requestURL := updateExpandedAssetsBaseURL + url.PathEscape(tag)
-	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	downloadURL := "https://github.com/Regstar2/PWDTT/releases/download/" + url.PathEscape(tag) + "/" + url.PathEscape(assetName)
+	if !isOfficialReleaseAssetURL(downloadURL) {
+		return "", fmt.Errorf("constructed release asset URL is not trusted")
+	}
+	return downloadURL, nil
+}
+
+func releaseAssetExists(client *http.Client, downloadURL string) (bool, error) {
+	if !isOfficialReleaseAssetURL(downloadURL) {
+		return false, fmt.Errorf("untrusted release asset URL")
+	}
+
+	request, err := http.NewRequest(http.MethodHead, downloadURL, nil)
 	if err != nil {
-		return "", false, fmt.Errorf("create release assets request: %w", err)
+		return false, fmt.Errorf("create release asset request: %w", err)
 	}
 	request.Header.Set("User-Agent", "Regstar2-PWDTT-update-checker")
 
 	response, err := client.Do(request)
 	if err != nil {
-		return "", false, fmt.Errorf("release assets request: %w", err)
+		return false, fmt.Errorf("release asset request: %w", err)
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("github release assets status: %d", response.StatusCode)
+	switch response.StatusCode {
+	case http.StatusOK, http.StatusPartialContent:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("github release asset status: %d", response.StatusCode)
 	}
-	body, err := readLimitedBody(response.Body)
-	if err != nil {
-		return "", false, err
-	}
-
-	assetPath := "/Regstar2/PWDTT/releases/download/" + tag + "/" + assetName
-	bodyText := string(body)
-	if !strings.Contains(bodyText, `href="`+assetPath+`"`) &&
-		!strings.Contains(bodyText, "href='"+assetPath+"'") {
-		return "", false, nil
-	}
-
-	downloadURL := "https://github.com" + assetPath
-	if !isOfficialReleaseAssetURL(downloadURL) {
-		return "", false, fmt.Errorf("constructed release asset URL is not trusted")
-	}
-	return downloadURL, true, nil
 }
 
 func readLimitedBody(reader io.Reader) ([]byte, error) {
