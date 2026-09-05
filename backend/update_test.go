@@ -201,3 +201,21 @@ func TestKnownReleaseAssetName(t *testing.T) {
 		}
 	}
 }
+
+
+func TestReleaseAssetURL(t *testing.T) {
+	got, err := releaseAssetURL("v1.7.0", "pwdtt-windows-amd64.exe")
+	if err != nil {
+		t.Fatalf("releaseAssetURL: %v", err)
+	}
+	want := "https://github.com/Regstar2/PWDTT/releases/download/v1.7.0/pwdtt-windows-amd64.exe"
+	if got != want {
+		t.Fatalf("releaseAssetURL = %q, want %q", got, want)
+	}
+
+	for _, assetName := range []string{"", "../pwdtt.exe", "dir/pwdtt.exe", "dir\\pwdtt.exe"} {
+		if _, err := releaseAssetURL("v1.7.0", assetName); err == nil {
+			t.Fatalf("releaseAssetURL accepted invalid asset name %q", assetName)
+		}
+	}
+}
