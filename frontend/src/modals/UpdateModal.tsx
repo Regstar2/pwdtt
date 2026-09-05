@@ -57,7 +57,7 @@ export default function UpdateModal({ version, body, url, onClose }: Props) {
             <button type="button" className="upd-btn upd-btn--secondary" onClick={onClose}>
               Позже
             </button>
-            <button type="button" className="upd-btn upd-btn--primary" onClick={() => { BrowserOpenURL(url || 'https://github.com/luminescq/PWDTT/releases'); onClose(); }}>
+            <button type="button" className="upd-btn upd-btn--primary" onClick={() => { BrowserOpenURL(url || 'https://github.com/Regstar2/PWDTT/releases/latest'); onClose(); }}>
               <IconDownload size={16} />
               Скачать
             </button>

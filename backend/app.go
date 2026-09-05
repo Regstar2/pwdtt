@@ -14,7 +14,9 @@ import (
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "1.7.0"
+// Version is injected from the release tag with Go ldflags.
+// Local/development builds intentionally keep the explicit fallback.
+var Version = "dev"
 
 // App — главный объект приложения.
 // Wails привязывает его методы к frontend через Bind().
@@ -251,12 +253,11 @@ func (a *App) SetObfsAccepted(v bool) error {
 	return a.store.SaveSettings(settings)
 }
 
-func (a *App) CheckUpdate() *UpdateInfo {
-	info, err := CheckUpdate(Version)
-	if err != nil {
-		return &UpdateInfo{Available: false}
+func (a *App) CheckUpdate() (*UpdateInfo, error) {
+	if !isComparableVersion(Version) {
+		return &UpdateInfo{Available: false}, nil
 	}
-	return info
+	return CheckUpdate(Version)
 }
 
 func (a *App) CancelVKOperation() {

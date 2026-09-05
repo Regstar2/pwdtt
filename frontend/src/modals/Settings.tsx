@@ -112,7 +112,7 @@ export default function Settings({ onClose }: Props) {
 
           <div className="st-info">
             <div className="st-info-name">PWDTT</div>
-            <div className="st-info-ver">v{version}</div>
+            <div className="st-info-ver">{version === "dev" ? "dev build" : `v${version}`}</div>
           </div>
 
           <div className="st-actions">
