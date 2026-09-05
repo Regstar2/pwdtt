@@ -76,7 +76,7 @@ func CleanupStaleExcludeRoutes(logf wgLogFunc) {
 	case "darwin":
 		cleanupStaleExcludeRoutesDarwin(logf)
 	case "windows":
-		cleanupStaleIPv6LeakProtection(logf)
+		cleanupStaleWindowsState(logf)
 	}
 }
 
@@ -297,7 +297,14 @@ var wintunDLLData []byte
 func InitWintun(dll []byte) { wintunDLLData = dll }
 
 func (w *WG) applyWindows(conf string, turnIPs []string, logf wgLogFunc) error {
-	w.teardownWindowsWithLog(logf)
+	if useWindowsPrivilegedHelper() {
+		return applyWindowsViaPrivilegedHelper(conf, turnIPs, logf)
+	}
+	return w.applyWindowsLocal(conf, turnIPs, logf)
+}
+
+func (w *WG) applyWindowsLocal(conf string, turnIPs []string, logf wgLogFunc) error {
+	w.teardownWindowsLocalWithLog(logf)
 
 	if err := extractWintun(); err != nil {
 		return fmt.Errorf("extract wintun.dll: %w", err)
@@ -407,6 +414,14 @@ func (w *WG) teardownWindows() {
 }
 
 func (w *WG) teardownWindowsWithLog(logf wgLogFunc) {
+	if useWindowsPrivilegedHelper() {
+		teardownWindowsPrivilegedHelper(logf)
+		return
+	}
+	w.teardownWindowsLocalWithLog(logf)
+}
+
+func (w *WG) teardownWindowsLocalWithLog(logf wgLogFunc) {
 	if logf == nil {
 		logf = func(msg string) { log.Printf("[WG] %s", msg) }
 	}
