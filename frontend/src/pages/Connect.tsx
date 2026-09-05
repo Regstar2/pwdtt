@@ -277,10 +277,12 @@ export default function Connect() {
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      logStore.push('ERROR', message);
-      toastStore.show(message, 6000);
-      tunnelStore.set('idle');
-      connectionStore.fail(message);
+      if (tunnelStore.get() === 'connecting') {
+        logStore.push('ERROR', message);
+        toastStore.show(message, 6000);
+        tunnelStore.set('idle');
+        connectionStore.fail(message);
+      }
     } finally {
       connectingRef.current = false;
     }
