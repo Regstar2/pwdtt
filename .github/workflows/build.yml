@@ -249,6 +249,7 @@ jobs:
           "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Exercise Authenticode signing helper
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $work = Join-Path $env:RUNNER_TEMP "pwdtt-signing-smoke-$([guid]::NewGuid().ToString('N'))"
@@ -259,23 +260,27 @@ jobs:
           Copy-Item -LiteralPath 'dist\pwdtt-windows-amd64.exe' -Destination $target
           $passwordText = [guid]::NewGuid().ToString('N')
           $password = ConvertTo-SecureString -String $passwordText -AsPlainText -Force
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=PWDTT CI Authenticode Test' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1)
+          Write-Host 'Creating ephemeral code-signing certificate...'
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=PWDTT CI Authenticode Test' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy Exportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(1)
           try {
             Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $password | Out-Null
             Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-            Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+            Write-Host 'Trusting ephemeral certificate in CurrentUser\\TrustedPeople...'
+            Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPeople' | Out-Null
             $thumbprint = $cert.Thumbprint
             $pfxBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
             Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -Force
+            Write-Host 'Calling signing helper...'
             ./scripts/sign-windows.ps1 -Path $target -PfxBase64 $pfxBase64 -PfxPassword $passwordText -TimestampUrl ''
+            Write-Host 'Verifying Authenticode signature...'
             ./scripts/verify-authenticode.ps1 -Path $target
           }
           finally {
             if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)")) {
               Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force
             }
-            if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)")) {
-              Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force
+            if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($cert.Thumbprint)")) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($cert.Thumbprint)" -Force
             }
             Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
           }
