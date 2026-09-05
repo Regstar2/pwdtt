@@ -14,7 +14,9 @@ import (
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Version is injected from the release tag with Go ldflags.\n// Local/development builds intentionally keep the explicit fallback.\nvar Version = "dev"
+// Version is injected from the release tag with Go ldflags.
+// Local/development builds intentionally keep the explicit fallback.
+var Version = "dev"
 
 // App — главный объект приложения.
 // Wails привязывает его методы к frontend через Bind().
