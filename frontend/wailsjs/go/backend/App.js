@@ -19,6 +19,10 @@ export function CancelVKOperation() {
   return window['go']['backend']['App']['CancelVKOperation']();
 }
 
+export function CancelVKHashChecks() {
+  return window['go']['backend']['App']['CancelVKHashChecks']();
+}
+
 export function CheckIP() {
   return window['go']['backend']['App']['CheckIP']();
 }
@@ -53,6 +57,10 @@ export function GenerateVKHashes(arg1, arg2) {
 
 export function GetAutoStart() {
   return window['go']['backend']['App']['GetAutoStart']();
+}
+
+export function GetDebugLogging() {
+  return window['go']['backend']['App']['GetDebugLogging']();
 }
 
 export function GetObfsAccepted() {
@@ -105,6 +113,10 @@ export function SaveProfile(arg1, arg2) {
 
 export function SetAutoStart(arg1) {
   return window['go']['backend']['App']['SetAutoStart'](arg1);
+}
+
+export function SetDebugLogging(arg1) {
+  return window['go']['backend']['App']['SetDebugLogging'](arg1);
 }
 
 export function SetObfsAccepted(arg1) {
