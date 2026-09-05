@@ -939,13 +939,19 @@ func (a *App) prepareVKHashes(params ConnectParams, operationID string) ([]strin
 			})
 			return []string{candidate.Hash}, nil
 		case vkHashStatusError:
+			usableNow := make([]VKHashEntry, 0, len(fallback))
+			for _, fallbackCandidate := range fallback {
+				if !confirmedInvalid[fallbackCandidate.ID] {
+					usableNow = append(usableNow, fallbackCandidate)
+				}
+			}
 			a.emitDiagnostic(diagnosticEvent{
 				Subsystem: "HASH", OperationID: operationID, HashID: candidate.ID,
 				Server: params.ProfileName, Stage: "preflight", Action: "complete",
 				Result: "fail-open", DurationMs: time.Since(started).Milliseconds(),
 				Message: checked.ErrorType,
 			})
-			return hashesFromEntries(fallback), nil
+			return hashesFromEntries(usableNow), nil
 		case vkHashStatusInvalid:
 			confirmedInvalid[candidate.ID] = true
 		case "canceled":
