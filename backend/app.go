@@ -24,6 +24,7 @@ type App struct {
 	vkClient *vkAPIClient
 	vkMu     sync.Mutex
 	vkCancel context.CancelFunc
+	hashOps  *vkHashOperationState
 }
 
 // NewApp создаёт App. Вызывается из main() до wails.Run().
@@ -31,6 +32,7 @@ func NewApp() *App {
 	return &App{
 		store:    NewStore(),
 		vkClient: newVKAPIClient(),
+		hashOps:  newVKHashOperationState(),
 	}
 }
 
@@ -65,11 +67,37 @@ func (a *App) Shutdown(ctx context.Context) {
 // ═══════════════════════════════════════════════════
 
 func (a *App) Connect(params ConnectParams) error {
-	hashes, err := a.prepareVKHashes(params)
+	if a.hashOps == nil {
+		a.hashOps = newVKHashOperationState()
+	}
+	a.hashOps.cancelBulk()
+
+	operationID := newOperationID("connect")
+	started := time.Now()
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "CONNECT", OperationID: operationID, Stage: "preflight",
+		Action: "start", Server: params.ProfileName,
+	})
+
+	hashes, err := a.prepareVKHashes(params, operationID)
 	if err != nil {
+		a.emitDiagnostic(diagnosticEvent{
+			Level: "ERROR", Subsystem: "CONNECT", OperationID: operationID,
+			Stage: "preflight", Action: "complete", Result: "error",
+			Server: params.ProfileName, DurationMs: time.Since(started).Milliseconds(),
+			Message: err.Error(),
+		})
 		return err
 	}
 	params.Hashes = hashes
+	params.OperationID = operationID
+
+	a.emitDiagnostic(diagnosticEvent{
+		Subsystem: "CONNECT", OperationID: operationID, Stage: "preflight",
+		Action: "complete", Result: "ok", Server: params.ProfileName,
+		DurationMs: time.Since(started).Milliseconds(),
+		Message: "VK hash preflight completed",
+	})
 	return a.bridge.Connect(params)
 }
 
@@ -210,9 +238,22 @@ func (a *App) CancelVKOperation() {
 	}
 }
 
+func (a *App) CancelVKHashChecks() {
+	if a.hashOps != nil {
+		a.hashOps.cancelInteractive()
+	}
+}
+
 // ═══════════════════════════════════════════════════
 // INTERNAL
 // ═══════════════════════════════════════════════════
+
+func (a *App) appContext() context.Context {
+	if a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
+}
 
 func (a *App) beginVKOperation() (context.Context, func(), error) {
 	a.vkMu.Lock()
