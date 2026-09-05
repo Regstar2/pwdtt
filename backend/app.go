@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os/exec"
 	"runtime"
@@ -105,6 +106,9 @@ func (a *App) Connect(params ConnectParams) error {
 			Message: err.Error(),
 		})
 		return err
+	}
+	if err := connectCtx.Err(); err != nil {
+		return fmt.Errorf("подключение отменено: %w", err)
 	}
 	params.Hashes = hashes
 	params.OperationID = operationID
