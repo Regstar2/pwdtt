@@ -70,7 +70,7 @@ func (a *App) Connect(params ConnectParams) error {
 	if a.hashOps == nil {
 		a.hashOps = newVKHashOperationState()
 	}
-	a.hashOps.cancelBulk()
+	a.hashOps.cancelInteractive()
 
 	operationID := newOperationID("connect")
 	started := time.Now()
@@ -235,12 +235,6 @@ func (a *App) CancelVKOperation() {
 	defer a.vkMu.Unlock()
 	if a.vkCancel != nil {
 		a.vkCancel()
-	}
-}
-
-func (a *App) CancelVKHashChecks() {
-	if a.hashOps != nil {
-		a.hashOps.cancelInteractive()
 	}
 }
 
