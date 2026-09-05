@@ -26,6 +26,9 @@ func main() {
 	if backend.RunVKAuthHelperIfRequested() {
 		return
 	}
+	if backend.RunWindowsWGHelperIfRequested(wintunDLL) {
+		return
+	}
 
 	backend.InitWintun(wintunDLL)
 	app := backend.NewApp()
