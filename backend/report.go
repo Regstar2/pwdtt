@@ -28,6 +28,9 @@ func (a *App) GenerateReport(entries []LogEntry) string {
 	sb.WriteString(fmt.Sprintf("- OS: %s/%s\n", runtime.GOOS, runtime.GOARCH))
 	sb.WriteString(fmt.Sprintf("- Go: %s\n", runtime.Version()))
 	sb.WriteString(fmt.Sprintf("- App Version: %s\n", Version))
+	if privilege := platformPrivilegeReport(); privilege != "" {
+		sb.WriteString(fmt.Sprintf("- %s\n", privilege))
+	}
 
 	if hostname, err := os.Hostname(); err == nil {
 		sb.WriteString(fmt.Sprintf("- Hostname: %s\n", hostname))
