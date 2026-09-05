@@ -112,6 +112,7 @@ function useWailsEvents() {
           record.action ? `action=${String(record.action)}` : '',
           record.result ? `result=${String(record.result)}` : '',
           record.attempt ? `attempt=${String(record.attempt)}` : '',
+          record.elapsedMs ? `elapsed=${String(record.elapsedMs)}ms` : '',
           record.durationMs ? `duration=${String(record.durationMs)}ms` : '',
           record.message ? String(record.message) : '',
         ].filter(Boolean);
