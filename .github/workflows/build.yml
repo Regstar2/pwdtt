@@ -239,7 +239,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $iscc)) {
             throw "Inno Setup compiler not found after pinned install: $iscc"
           }
-          $package = choco list --local-only --exact innosetup --limit-output
+          $package = choco list --exact innosetup --limit-output
           if ($package -notmatch '^innosetup\|6\.7\.1
 
       - name: Exercise Authenticode signing helper
