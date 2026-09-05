@@ -13,7 +13,7 @@ if ($signature.Status -ne 'Valid') {
     } else {
         '<no signer>'
     }
-    throw "Authenticode verification failed for $resolvedPath: status=$($signature.Status), signer=$subject"
+    throw "Authenticode verification failed for ${resolvedPath}: status=$($signature.Status), signer=$subject"
 }
 
 if (-not $signature.SignerCertificate) {
