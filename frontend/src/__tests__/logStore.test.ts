@@ -30,6 +30,16 @@ describe('logStore', () => {
     }
   });
 
+  it('push: DEBUG сохраняет каждую трассировочную запись', () => {
+    logStore.push('DEBUG', '[HASH] stage=turn action=start');
+    logStore.push('DEBUG', '[HASH] stage=turn action=complete');
+
+    const entries = logStore.getAll();
+    expect(entries.length).toBe(2);
+    expect(entries[0].level).toBe('DEBUG');
+    expect(entries[1].level).toBe('DEBUG');
+  });
+
   it('push: дубликаты увеличивают count', () => {
     logStore.push('INFO', 'same message');
     logStore.push('INFO', 'same message');
