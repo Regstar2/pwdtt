@@ -64,6 +64,8 @@ type Config struct {
 	CaptchaMode string   // auto/rjs/wv
 	ObfsMode    string   // audio/video
 	Fingerprint string   // chrome/android/ios/safari/firefox
+	OperationID string   // correlation id for diagnostics
+	DebugLogging bool    // emit verbose structured diagnostics
 }
 
 // ═══════════════════════════════════════════════════
@@ -216,6 +218,11 @@ func (c *Core) start() error {
 		Hashes:   c.cfg.Hashes,
 		WrapKey:  wrapKey,
 		ObfsMode: c.cfg.ObfsMode,
+	}
+	if c.cfg.DebugLogging {
+		tp.Trace = func(sessionID int, stage, state, message string, duration time.Duration) {
+			c.emitDiagnostic("DEBUG", "CORE", stage, state, message, sessionID, duration)
+		}
 	}
 
 	// Локальный UDP сокет
@@ -515,6 +522,14 @@ func (lw *logWriter) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	level := classifyLevel(msg)
+
+	if lw.core.cfg.DebugLogging && level != "ERROR" {
+		if level == "INFO" {
+			level = "DEBUG"
+		}
+		lw.core.emit(Event{Type: EventLog, Level: level, Message: msg})
+		return len(p), nil
+	}
 
 	// ВСЕ ошибки — показываем
 	if level == "ERROR" {
