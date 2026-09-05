@@ -187,7 +187,9 @@ function useUpdateChecker() {
         if (info.available) {
           setUpdateInfo({ version: info.version, body: info.body, url: info.url });
         }
-      }).catch(() => {
+      }).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error ?? 'unknown error');
+        logStore.push('WARN', `[UPDATE] Не удалось проверить обновления: ${message}`);
         timerRef.current = setTimeout(check, RETRY_MS);
       });
     };
