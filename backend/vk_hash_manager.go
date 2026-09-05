@@ -422,11 +422,7 @@ func (a *App) CheckAllVKHashes(profileName string) ([]VKHashCheckResult, error) 
 					return
 				}
 				result, checkErr := a.checkVKHashCoordinated(ctx, entry.ID, profileName, operationID)
-				select {
-				case out <- checkEnvelope{result: result, err: checkErr, hashID: entry.ID}:
-				case <-ctx.Done():
-					return
-				}
+				out <- checkEnvelope{result: result, err: checkErr, hashID: entry.ID}
 			}
 		}()
 	}
