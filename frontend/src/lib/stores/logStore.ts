@@ -21,8 +21,15 @@ function notify() {
 
 function extractTag(message: string): string {
   const m = message.match(/^\[([^\]]+)\]/);
-  if (!m) return '';
-  return m[1].replace(/\s*#\d+$/, '').replace(/\s+\d+$/, '');
+  return m?.[1] ?? '';
+}
+
+function groupingKey(message: string): string {
+  // STATS is a live snapshot: keep only the latest sample while counting updates.
+  if (extractTag(message) === 'STATS') return '[STATS]';
+  // Other INFO/WARN entries are grouped only when the actual message repeats.
+  // Different events from the same subsystem (for example [WG]) must stay distinct.
+  return message;
 }
 
 export const logStore = {
@@ -42,23 +49,14 @@ export const logStore = {
       return;
     }
 
-    const tag = extractTag(message);
-    if (tag) {
-      const idx = entries.findIndex(e => e.level === level && extractTag(e.message) === tag);
-      if (idx !== -1) {
-        const found = entries[idx];
-        const updated = { ...found, message, time, count: found.count + 1 };
-        // Grouped entry represents the latest event for this tag, so keep it
-        // at the end of the timeline instead of changing a timestamp in-place.
-        entries = [...entries.slice(0, idx), ...entries.slice(idx + 1), updated];
-        notify();
-        return;
-      }
-    }
-
-    const last = entries[entries.length - 1];
-    if (last && last.message === message && last.level === level) {
-      entries = [...entries.slice(0, -1), { ...last, count: last.count + 1 }];
+    const key = groupingKey(message);
+    const idx = entries.findIndex(e => e.level === level && groupingKey(e.message) === key);
+    if (idx !== -1) {
+      const found = entries[idx];
+      const updated = { ...found, message, time, count: found.count + 1 };
+      // The grouped row represents the latest occurrence/snapshot, so keep it
+      // at the end of the timeline instead of changing a timestamp in-place.
+      entries = [...entries.slice(0, idx), ...entries.slice(idx + 1), updated];
       notify();
       return;
     }
