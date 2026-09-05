@@ -227,17 +227,277 @@ jobs:
           name: pwdtt-windows-portable-raw
           path: dist
 
-      - name: Verify pinned Inno Setup
+      - name: Install pinned Inno Setup
         shell: pwsh
         run: |
+          choco install innosetup --version=6.7.1 --yes --no-progress --force
+          if ($LASTEXITCODE -notin @(0, 1641, 3010)) {
+            throw "Chocolatey failed to install Inno Setup 6.7.1 with exit code $LASTEXITCODE"
+          }
           $programFilesX86 = [Environment]::GetFolderPath('ProgramFilesX86')
           $iscc = Join-Path $programFilesX86 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path -LiteralPath $iscc)) {
-            throw "Inno Setup compiler not found: $iscc"
+            throw "Inno Setup compiler not found after pinned install: $iscc"
           }
-          $actual = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
-          if ($actual -notlike '6.7.1*') {
-            throw "Expected Inno Setup 6.7.1, found $actual"
+          $package = choco list --local-only --exact innosetup --limit-output
+          if ($package -notmatch '^innosetup\|6\.7\.1
+
+      - name: Exercise Authenticode signing helper
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP "pwdtt-signing-smoke-$([guid]::NewGuid().ToString('N'))"
+          New-Item -ItemType Directory -Path $work -Force | Out-Null
+          $target = Join-Path $work 'pwdtt-signing-smoke.exe'
+          $pfx = Join-Path $work 'test.pfx'
+          $cer = Join-Path $work 'test.cer'
+          Copy-Item -LiteralPath 'dist\pwdtt-windows-amd64.exe' -Destination $target
+          $passwordText = [guid]::NewGuid().ToString('N')
+          $password = ConvertTo-SecureString -String $passwordText -AsPlainText -Force
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=PWDTT CI Authenticode Test' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1)
+          try {
+            Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $password | Out-Null
+            Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+            Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+            $thumbprint = $cert.Thumbprint
+            $pfxBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
+            Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -Force
+            ./scripts/sign-windows.ps1 -Path $target -PfxBase64 $pfxBase64 -PfxPassword $passwordText -TimestampUrl ''
+            ./scripts/verify-authenticode.ps1 -Path $target
+          }
+          finally {
+            if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)")) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force
+            }
+            if ($cert -and (Test-Path -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)")) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force
+            }
+            Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Sign Windows portable executable for owner tag
+        if: startsWith(github.ref, 'refs/tags/v') && github.actor == github.repository_owner
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          $hasPfx = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_BASE64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_PASSWORD)
+          if ($hasPfx -xor $hasPassword) {
+            throw 'Both WINDOWS_SIGNING_PFX_BASE64 and WINDOWS_SIGNING_PFX_PASSWORD must be configured together.'
+          }
+          if (-not $hasPfx) {
+            Write-Warning 'Windows signing certificate is not configured; using documented unsigned fallback.'
+            'PWDTT_WINDOWS_SIGNED=false' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            exit 0
+          }
+          ./scripts/sign-windows.ps1 -Path 'dist\pwdtt-windows-amd64.exe' -PfxBase64 $env:WINDOWS_SIGNING_PFX_BASE64 -PfxPassword $env:WINDOWS_SIGNING_PFX_PASSWORD
+          ./scripts/verify-authenticode.ps1 -Path 'dist\pwdtt-windows-amd64.exe'
+          'PWDTT_WINDOWS_SIGNED=true' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build baseline installer for upgrade smoke
+        shell: pwsh
+        run: |
+          $source = (Resolve-Path -LiteralPath 'dist\pwdtt-windows-amd64.exe').Path
+          $output = Join-Path $env:RUNNER_TEMP 'pwdtt-installer-baseline'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          & $env:ISCC_PATH '/DAppVersion=0.0.0-smoke' '/DVersionInfoVersion=0.0.0.0' "/DSourceExe=$source" "/DOutputDir=$output" '/DOutputBaseFilename=pwdtt-windows-amd64-setup-baseline' 'build\windows\installer.iss'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup baseline build failed with exit code $LASTEXITCODE"
+          }
+          "PWDTT_BASELINE_INSTALLER=$(Join-Path $output 'pwdtt-windows-amd64-setup-baseline.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $source = (Resolve-Path -LiteralPath 'dist\pwdtt-windows-amd64.exe').Path
+          $output = (Resolve-Path -LiteralPath 'dist').Path
+          & $env:ISCC_PATH "/DAppVersion=$env:PWDTT_VERSION" "/DVersionInfoVersion=$env:PWDTT_VERSION_INFO" "/DSourceExe=$source" "/DOutputDir=$output" '/DOutputBaseFilename=pwdtt-windows-amd64-setup' 'build\windows\installer.iss'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup build failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Sign Windows installer for owner tag
+        if: startsWith(github.ref, 'refs/tags/v') && github.actor == github.repository_owner
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          if ($env:PWDTT_WINDOWS_SIGNED -ne 'true') {
+            Write-Warning 'Portable executable is unsigned; installer remains unsigned as well.'
+            exit 0
+          }
+          ./scripts/sign-windows.ps1 -Path 'dist\pwdtt-windows-amd64-setup.exe' -PfxBase64 $env:WINDOWS_SIGNING_PFX_BASE64 -PfxPassword $env:WINDOWS_SIGNING_PFX_PASSWORD
+          ./scripts/verify-authenticode.ps1 -Path 'dist\pwdtt-windows-amd64-setup.exe'
+
+      - name: Smoke test install, upgrade and uninstall
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1 -BaselineInstallerPath $env:PWDTT_BASELINE_INSTALLER -InstallerPath 'dist\pwdtt-windows-amd64-setup.exe'
+
+      - name: Record Windows signing status
+        shell: pwsh
+        run: |
+          $status = if ($env:GITHUB_REF -like 'refs/tags/v*' -and $env:GITHUB_ACTOR -eq $env:GITHUB_REPOSITORY_OWNER) {
+            if ($env:PWDTT_WINDOWS_SIGNED -eq 'true') {
+              'Authenticode: signed and verified'
+            } else {
+              'Authenticode: unsigned fallback (release certificate is not configured)'
+            }
+          } elseif ($env:GITHUB_REF -like 'refs/tags/v*') {
+            'Authenticode: unsigned (tag was not created by repository owner)'
+          } else {
+            'Authenticode: unsigned CI package (release signing is tag-only)'
+          }
+          Set-Content -LiteralPath 'dist\windows-signing-status.txt' -Value $status -Encoding utf8
+          Write-Host $status
+
+      - name: Upload final Windows package
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwdtt-windows-package
+          path: |
+            dist/pwdtt-windows-amd64.exe
+            dist/pwdtt-windows-amd64-setup.exe
+            dist/windows-signing-status.txt
+
+  build-macos:
+    name: Build macOS
+    needs: [go-root, core-race, windows-backend, frontend, release-scripts]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve build version
+        shell: bash
+        run: |
+          version=dev
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "PWDTT_VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install pinned Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      - name: Build macOS
+        run: wails build -platform darwin/universal -ldflags "-X pwdtt/backend.Version=${PWDTT_VERSION}" -o pwdtt-macos
+
+      - name: Zip macOS app
+        if: github.event_name != 'pull_request'
+        run: cd build/bin && zip -r PWDTT-macos.zip PWDTT.app
+
+      - name: Upload macOS artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwdtt-macos
+          path: build/bin/PWDTT-macos.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') && github.actor == github.repository_owner
+    needs: [build-linux-windows, windows-package, build-macos]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Verify exact tag source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+
+      - name: Refuse to overwrite an existing release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pwdtt-linux-amd64
+          path: dist
+
+      - name: Download final Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: pwdtt-windows-package
+          path: dist
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pwdtt-macos
+          path: dist
+
+      - name: Generate SHA-256 checksums and release notes
+        shell: pwsh
+        run: ./scripts/release.ps1 -Version $env:GITHUB_REF_NAME -DistDir 'dist' -SigningStatusFile 'dist/windows-signing-status.txt'
+
+      - name: Verify final release payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            dist/pwdtt-linux-amd64 \
+            dist/pwdtt-windows-amd64.exe \
+            dist/pwdtt-windows-amd64-setup.exe \
+            dist/PWDTT-macos.zip \
+            dist/SHA256SUMS \
+            dist/RELEASE_NOTES.md; do
+            test -s "$file"
+          done
+          test "$(wc -l < dist/SHA256SUMS)" -eq 4
+          cat dist/SHA256SUMS
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file dist/RELEASE_NOTES.md \
+            "${prerelease[@]}" \
+            dist/pwdtt-linux-amd64 \
+            dist/pwdtt-windows-amd64.exe \
+            dist/pwdtt-windows-amd64-setup.exe \
+            dist/PWDTT-macos.zip \
+            dist/SHA256SUMS
+) {
+            throw "Expected Chocolatey innosetup 6.7.1, got: $package"
           }
           "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
