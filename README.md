@@ -126,6 +126,16 @@ wdtt://1.2.3.4:56000:56001:0:mypassword:AbCdEfGh,XyZ12345#Мой сервер
 
 PWDTT состоит из Go backend и интерфейса Wails/React. Сетевой путь разделён на локальный WireGuard-интерфейс, worker-соединения через VK TURN/DTLS и удалённый `wdtt-server`, который принимает туннельный трафик и выпускает его в интернет.
 
+## Обновления
+
+PWDTT проверяет обновления только в официальном release-канале поддерживаемого форка — [GitHub Releases](../../releases). Проверяется последний stable release; prerelease не подменяет stable-канал.
+
+Release-сборки получают runtime version из Git tag `vX.Y.Z` во время GitHub Actions build через Go `-ldflags`. Локальная сборка без release tag имеет явную версию `dev` и не сравнивается с опубликованными semver-релизами.
+
+При запуске проверка выполняется асинхронно. Если latest version новее установленной и для текущих ОС/архитектуры есть совместимый официальный asset, приложение показывает changelog и предлагает открыть этот asset в браузере. PWDTT не скачивает, не заменяет и не запускает новый бинарник самостоятельно. Если совместимого asset нет, такой release не считается доступным для установки.
+
+Недоступность GitHub API, отсутствие сети или timeout не мешают обычной работе приложения; frontend повторяет неудачную проверку позднее. Архитектурное решение и ограничения self-update описаны в [ADR 0001](docs/adr/0001-update-delivery.md).
+
 ## Диагностика
 
 Если соединение работает некорректно:
@@ -168,11 +178,12 @@ macOS Universal необходимо собирать на macOS:
 wails build -platform darwin/universal -o pwdtt-macos
 ```
 
-GitHub Actions workflow `.github/workflows/build.yml` содержит отдельные сборки для Linux/Windows и macOS.
+GitHub Actions workflow `.github/workflows/build.yml` содержит отдельные сборки для Linux/Windows и macOS. При сборке tag `vX.Y.Z` CI автоматически передаёт `X.Y.Z` в `backend.Version`; опубликованные артефакты и release создаются из одного workflow run. Обычные локальные команды выше оставляют версию `dev`. Для воспроизводимой локальной release-like сборки укажите `-ldflags "-X pwdtt/backend.Version=X.Y.Z"`.
 
 ## Документация
 
 - [Релизы форка](../../releases) — опубликованные версии, изменения и готовые артефакты.
+- [ADR 0001: доставка обновлений](docs/adr/0001-update-delivery.md) — release channel, version source, asset selection и safe fallback без self-update.
 - [Issues форка](../../issues) — известные проблемы и текущие задачи.
 - [Upstream PWDTT](https://github.com/luminescq/PWDTT) — исходный desktop-проект.
 - [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) — исходный Android-проект, на базе которого появился PWDTT.
