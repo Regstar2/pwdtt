@@ -4,9 +4,9 @@ package backend
 
 import (
 	"crypto/rand"
-	"errors"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
