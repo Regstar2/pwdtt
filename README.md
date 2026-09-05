@@ -1,15 +1,15 @@
 <div align="center">
 
-<img src="assets/icons/icon.png" width="128" alt="Логотип PWDTT">
+<img src="docs/assets/logo.png" width="128" alt="Логотип PWDTT">
 
 # PWDTT
 
-Десктопный клиент для туннелирования трафика через TURN/DTLS-инфраструктуру VK с локальным WireGuard-интерфейсом. Этот репозиторий — поддерживаемый форк [luminescq/PWDTT](https://github.com/luminescq/PWDTT) с исправлениями совместимости с актуальными qWDTT-серверами.
+Десктопный клиент для туннелирования трафика через TURN/DTLS-инфраструктуру VK с локальным WireGuard-интерфейсом. Репозиторий развивается как поддерживаемый форк [luminescq/PWDTT](https://github.com/luminescq/PWDTT) с совместимостью с актуальной инфраструктурой WDTT/qWDTT.
 
-[![Release](https://img.shields.io/github/v/release/Regstar2/PWDTT?display_name=tag&sort=semver&style=for-the-badge&logo=github&label=release)](../../releases)
-[![CI](https://img.shields.io/github/actions/workflow/status/Regstar2/PWDTT/build.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](../../actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/Regstar2/pwdtt?display_name=tag&sort=semver&style=for-the-badge&logo=github&label=release)](../../releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/Regstar2/pwdtt/build.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](../../actions/workflows/build.yml)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0A7EA4?style=for-the-badge)](#требования)
-[![License](https://img.shields.io/github/license/Regstar2/PWDTT?style=for-the-badge&label=license)](LICENSE)
+[![License](https://img.shields.io/github/license/Regstar2/pwdtt?style=for-the-badge&label=license)](LICENSE)
 
 [Быстрый старт](#быстрый-старт) ·
 [Документация](#документация) ·
@@ -22,77 +22,80 @@
 
 ## О проекте
 
-PWDTT поднимает локальный WireGuard-интерфейс и передаёт его трафик через TURN/DTLS-серверы VK, оборачивая пакеты в RTP с шифрованием ChaCha20-Poly1305. Для выхода в интернет используется настроенный пользователем `wdtt-server` на VPS.
+PWDTT поднимает локальный WireGuard-интерфейс и передаёт его трафик через VK TURN/DTLS, оборачивая пакеты в RTP с шифрованием ChaCha20-Poly1305. Для выхода в интернет используется настроенный пользователем `wdtt-server`.
 
 ```text
 Приложение → WireGuard → ChaCha20-Poly1305/RTP → VK TURN/DTLS → wdtt-server → интернет
 ```
 
-Проект предназначен для пользователей, которым нужен desktop-клиент для существующей инфраструктуры WDTT/qWDTT на Windows, Linux или macOS.
+Проект предназначен для пользователей существующей инфраструктуры WDTT/qWDTT, которым нужен desktop-клиент для Windows, Linux или macOS.
 
 ## Статус проекта
 
-Репозиторий развивается как отдельный поддерживаемый форк `luminescq/PWDTT`. Актуальные опубликованные версии доступны в [GitHub Releases](../../releases).
+PWDTT активно развивается как независимый поддерживаемый форк `luminescq/PWDTT`. Последний стабильный релиз — [v1.8.0](../../releases/tag/v1.8.0).
 
-### Что изменено в этом форке
-
-В `v1.5.2` относительно базового upstream-состояния:
-
-- добавлена команда `AUTH` для DTLS-воркеров, которые не запрашивают WireGuard-конфигурацию;
-- восстановлена совместимость с более новыми qWDTT-серверами, которые требуют авторизацию каждого worker-соединения;
-- исправлено отображение длинного списка сохранённых серверов: список прокручивается, а длинные названия не ломают разметку.
-
-В текущей ветке `main` доступны автоматическая генерация VK call hashes, централизованное управление и функциональная проверка хешей, улучшенный connection dashboard, TURN failover и Windows-защита от IPv6 leak.
+В форке поддерживается собственный release-канал `Regstar2/pwdtt`, а изменения upstream и форка рассматриваются отдельно. Текущие задачи и известные проблемы ведутся в [GitHub Issues](../../issues).
 
 ## Возможности
 
-- локальный WireGuard-туннель;
-- транспорт через VK TURN/DTLS;
+- локальный WireGuard-туннель с транспортом через VK TURN/DTLS;
 - RTP-обёртка с ChaCha20-Poly1305;
-- профили серверов и импорт `wdtt://`-ссылок;
-- поддержка qWDTT-ссылок;
-- до четырёх VK call hashes в профиле;
+- профили серверов, импорт `wdtt://` и поддержка qWDTT-ссылок;
+- ручное добавление и централизованное управление VK call hashes;
 - автоматическое создание VK call hashes на Windows через авторизацию VK;
-- сборка для Windows amd64, Linux amd64 и macOS Universal;
-- встроенный отчёт с диагностической информацией и логами текущей сессии.
+- функциональная проверка хешей по цепочке VK → TURN → WRAP → DTLS;
+- connection dashboard с этапами подключения, воркерами, трафиком, задержкой и состоянием IPv4/IPv6;
+- TURN failover и распределение worker-сессий между доступными endpoint;
+- Windows-защита от IPv6 leak для IPv4 full-tunnel;
+- встроенный диагностический отчёт и журнал текущей сессии;
+- Windows installer и portable-сборка, Linux amd64 и macOS Universal;
+- проверка обновлений через официальный release-канал форка.
+
+## Скриншоты
+
+### Главное окно
+
+<p align="center">
+  <img src="docs/assets/screenshots/main-window.png" width="900" alt="Главное окно PWDTT с состоянием подключения и списком серверов">
+</p>
+
+### Управление VK-хешами
+
+<p align="center">
+  <img src="docs/assets/screenshots/vk-hashes.png" width="900" alt="Экран PWDTT для управления и проверки VK call hashes">
+</p>
+
+### Логи и диагностика
+
+<p align="center">
+  <img src="docs/assets/screenshots/logs.png" width="900" alt="Экран логов PWDTT с событиями подключения и диагностикой">
+</p>
 
 ## Быстрый старт
 
-Для Windows x64 готовые сборки публикуются на странице [Releases](../../releases).
-
-1. Для обычной установки скачайте `pwdtt-windows-amd64-setup.exe`. Portable-вариант `pwdtt-windows-amd64.exe` остаётся официальным артефактом для запуска без установки.
-2. Установите или запустите приложение.
+1. Откройте [Releases](../../releases) и скачайте сборку для своей платформы. Для Windows рекомендуется `pwdtt-windows-amd64-setup.exe`.
+2. Установите или запустите PWDTT.
 3. Добавьте сервер кнопкой `+`: вставьте `wdtt://`-ссылку или заполните параметры вручную.
-4. В настройках Hash добавьте до четырёх хешей вручную либо на Windows войдите в VK и создайте их автоматически.
-5. Выберите сервер и нажмите кнопку подключения. На Windows при настройке туннеля подтвердите штатный запрос UAC; вручную запускать всё приложение от имени администратора не требуется.
+4. Добавьте VK call hashes вручную либо на Windows создайте их через встроенную авторизацию VK.
+5. Выберите сервер и запустите подключение. На Windows подтвердите штатный UAC-запрос, когда приложение перейдёт к настройке WireGuard и маршрутов.
 
-Каждый release содержит `SHA256SUMS` с SHA-256 для Linux, Windows portable, Windows installer и macOS payload. Статус Authenticode-подписи Windows указывается в release notes.
-
-Для Linux x86_64 и macOS Universal артефакты также собираются GitHub Actions и публикуются для релизов, где они доступны.
+Для работы нужен собственный настроенный WDTT/qWDTT-сервер. PWDTT не предоставляет удалённый сервер автоматически.
 
 ## Требования
 
 ### Windows
 
-- архитектура x86-64 для готовой Windows-сборки;
+- Windows x86-64 для готовой Windows-сборки;
 - доступ к настроенному WDTT/qWDTT-серверу;
+- рабочие VK call hashes либо возможность создать их из приложения;
 - Microsoft Edge для автоматической авторизации VK;
-- валидные VK call hashes либо возможность создать их из приложения;
-- возможность подтвердить штатный запрос UAC при создании WireGuard-интерфейса и изменении маршрутов/firewall.
+- возможность подтвердить UAC при создании WireGuard-интерфейса и изменении маршрутов/firewall.
 
-GUI PWDTT запускается без повышенных прав. Когда соединение доходит до настройки WireGuard, приложение запускает отдельный минимальный privileged helper через стандартный UAC flow Windows. При отказе от UAC подключение отменяется и приложение не продолжает работу с ложным статусом VPN. VK-авторизация, WebView2 и остальные обычные операции не повышаются до администратора.
-
-Драйвер Wintun используется приложением для WireGuard-интерфейса.
-
-#### Установка и portable
-
-Рекомендуемый Windows installer устанавливает PWDTT для текущего пользователя в `%LOCALAPPDATA%\Programs\PWDTT`, поддерживает повторную установку поверх предыдущей версии и штатный uninstall. Installer не меняет модель прав самого приложения: GUI остаётся unelevated, а UAC запрашивается только существующим privileged helper в момент настройки туннеля.
-
-Portable `pwdtt-windows-amd64.exe` продолжает публиковаться как официальный вариант без установки. Release signing, unsigned fallback и проверка SHA-256 описаны в [Windows release guide](docs/windows-release.md).
+GUI работает без постоянного elevation. Повышенные права запрашиваются отдельным privileged helper только для системной сетевой настройки.
 
 ### Linux
 
-Для сборки и запуска нужны WireGuard tools и WebKitGTK 4.1. На Debian/Ubuntu:
+Для готовой Linux amd64-сборки нужны WireGuard tools и WebKitGTK 4.1. На Debian/Ubuntu:
 
 ```bash
 sudo apt install wireguard-tools libayatana-appindicator3-dev pkg-config gcc libwebkit2gtk-4.1-dev
@@ -102,7 +105,24 @@ sudo apt install wireguard-tools libayatana-appindicator3-dev pkg-config gcc lib
 
 ### macOS
 
-Исходники содержат macOS-путь на базе userspace WireGuard. Создание сетевого интерфейса и маршрутов требует административных прав.
+Публикуется Universal-сборка. Создание сетевого интерфейса и маршрутов требует административных прав.
+
+## Установка
+
+### Windows
+
+Рекомендуемый вариант — `pwdtt-windows-amd64-setup.exe`. Installer устанавливает PWDTT для текущего пользователя в `%LOCALAPPDATA%\Programs\PWDTT`, поддерживает установку поверх предыдущей версии и штатное удаление.
+
+`pwdtt-windows-amd64.exe` остаётся официальным portable-вариантом без установки.
+
+### Linux и macOS
+
+Скачайте соответствующий артефакт из [GitHub Releases](../../releases):
+
+- Linux: `pwdtt-linux-amd64`;
+- macOS: `PWDTT-macos.zip`.
+
+Каждый release содержит `SHA256SUMS` для проверки опубликованных payload-файлов.
 
 ## Использование
 
@@ -114,7 +134,7 @@ sudo apt install wireguard-tools libayatana-appindicator3-dev pkg-config gcc lib
 wdtt://<IP>:<DTLS_PORT>:<WG_PORT>:<PROXY_PORT>:<PASSWORD>[:<HASH1>,<HASH2>,...][#название]
 ```
 
-Поля 1–5 обязательны. Хеши опциональны, передаются через запятую; поддерживается до четырёх значений. `#название` задаёт необязательный псевдоним профиля.
+Поля 1–5 обязательны. Хеши передаются через запятую; поддерживается до четырёх значений. `#название` задаёт необязательный псевдоним профиля.
 
 Пример:
 
@@ -126,33 +146,55 @@ wdtt://1.2.3.4:56000:56001:0:mypassword:AbCdEfGh,XyZ12345#Мой сервер
 
 ### VK call hashes
 
-Ручной ввод работает на всех платформах: можно вставить сам hash или полную ссылку `vk.com/call/join/<hash>`; приложение сохраняет нормализованное значение в профиле.
+Ручной ввод работает на всех платформах: можно указать hash или полную ссылку `vk.com/call/join/<hash>`.
 
-На Windows текущий `main` также умеет автоматически создавать VK-звонки: в окне Hash войдите в VK, затем используйте `Создать 1 хеш` или `Заполнить свободные`. Авторизация выполняется в отдельном профиле Microsoft Edge; access token остаётся в Go backend и хранится через Windows DPAPI.
+На Windows PWDTT умеет создавать VK-звонки из окна управления хешами. Авторизация выполняется через отдельный профиль Microsoft Edge; access token остаётся в Go backend и не передаётся в React.
 
 ## Архитектура
 
-PWDTT состоит из Go backend и интерфейса Wails/React. Сетевой путь разделён на локальный WireGuard-интерфейс, worker-соединения через VK TURN/DTLS и удалённый `wdtt-server`, который принимает туннельный трафик и выпускает его в интернет.
+PWDTT состоит из Go backend и интерфейса Wails/React. Сетевой путь разделён на локальный WireGuard-интерфейс, worker-соединения через VK TURN/DTLS и удалённый `wdtt-server`.
 
-## Обновления
+```text
+┌──────────────┐    WireGuard    ┌──────────────┐
+│ Приложения   │ ──────────────► │    PWDTT     │
+└──────────────┘                 └──────┬───────┘
+                                       │ RTP / ChaCha20-Poly1305
+                                       ▼
+                                ┌──────────────┐
+                                │ VK TURN/DTLS │
+                                └──────┬───────┘
+                                       │
+                                       ▼
+                                ┌──────────────┐
+                                │ wdtt-server  │ ──► интернет
+                                └──────────────┘
+```
 
-PWDTT проверяет обновления только в официальном release-канале поддерживаемого форка — [GitHub Releases](../../releases). Проверяется последний stable release; prerelease не подменяет stable-канал.
+## Безопасность
 
-Release-сборки получают runtime version из Git tag `vX.Y.Z` во время GitHub Actions build через Go `-ldflags`. Локальная сборка без release tag имеет явную версию `dev` и не сравнивается с опубликованными semver-релизами.
-
-При запуске проверка выполняется асинхронно. Если latest version новее установленной и для текущих ОС/архитектуры есть совместимый официальный asset, приложение показывает changelog и предлагает открыть этот asset в браузере. PWDTT не скачивает, не заменяет и не запускает новый бинарник самостоятельно. Если совместимого asset нет, такой release не считается доступным для установки.
-
-Недоступность GitHub API, отсутствие сети или timeout не мешают обычной работе приложения; frontend повторяет неудачную проверку позднее. Архитектурное решение и ограничения self-update описаны в [ADR 0001](docs/adr/0001-update-delivery.md).
+- Windows GUI не требует постоянного запуска от имени администратора; elevation используется только для минимального privileged helper.
+- При отказе от UAC подключение отменяется, а приложение не переходит в ложное состояние VPN.
+- VK access token остаётся в Go backend; локальное VK-состояние на Windows защищается через DPAPI.
+- Release pipeline поддерживает Authenticode-подпись Windows-сборок и явно фиксирует unsigned fallback, если release-сертификат не настроен.
+- Для всех публикуемых payload-файлов генерируется `SHA256SUMS`.
 
 ## Диагностика
 
 Если соединение работает некорректно:
 
-1. Откройте настройки приложения.
-2. Нажмите `Отчёт`.
-3. Создайте [Issue](../../issues/new) и приложите полученный отчёт вместе с описанием проблемы.
+1. Откройте настройки PWDTT.
+2. Создайте диагностический отчёт кнопкой `Отчёт`.
+3. Откройте [Issue](../../issues/new) и приложите отчёт вместе с шагами воспроизведения.
 
-Отчёт содержит сведения о системе, версии приложения, используемой на Windows модели elevation и логи текущей сессии. Перед публикацией всё равно проверьте текст отчёта и удалите данные, которые не хотите размещать публично.
+Отчёт содержит сведения о системе, версии приложения, модели Windows elevation и логи текущей сессии. Перед публикацией проверьте его содержимое и удалите данные, которые не хотите размещать публично.
+
+## Обновление
+
+PWDTT проверяет последний stable release в [GitHub Releases](../../releases). Release-сборки получают версию из Git tag `vX.Y.Z`; локальная сборка имеет версию `dev`.
+
+Если доступна более новая совместимая версия, приложение показывает changelog и предлагает открыть официальный asset в браузере. PWDTT не скачивает, не заменяет и не запускает новый бинарник автоматически.
+
+Архитектура update flow описана в [ADR 0001](docs/adr/0001-update-delivery.md).
 
 ## Сборка
 
@@ -163,8 +205,8 @@ Release-сборки получают runtime version из Git tag `vX.Y.Z` во
 - Wails v2.13.0.
 
 ```bash
-git clone https://github.com/Regstar2/PWDTT.git
-cd PWDTT
+git clone https://github.com/Regstar2/pwdtt.git
+cd pwdtt
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 ```
 
@@ -180,43 +222,52 @@ Windows amd64:
 wails build -platform windows/amd64 -o pwdtt-windows-amd64.exe
 ```
 
-macOS Universal необходимо собирать на macOS:
+macOS Universal:
 
 ```bash
 wails build -platform darwin/universal -o pwdtt-macos
 ```
 
-GitHub Actions workflow `.github/workflows/build.yml` запускает `go test ./...` для root module, `go test -race ./...` для `core`, Windows backend tests на `windows-latest`, `npm test`, `npm run lint`, production frontend build и smoke release helpers. После успешных проверок выполняются отдельные сборки Linux/Windows и macOS, а Windows portable проходит packaging job на `windows-2025`: Authenticode signing для owner tag при наличии secrets, Inno Setup installer и install/upgrade/uninstall smoke. При сборке tag `vX.Y.Z` CI автоматически передаёт `X.Y.Z` в `backend.Version`; release создаётся только из финальных artifacts этого workflow, а `scripts/release.ps1` вычисляет `SHA256SUMS`. Обычные локальные команды выше оставляют версию `dev`. Для воспроизводимой локальной release-like сборки укажите `-ldflags "-X pwdtt/backend.Version=X.Y.Z"`.
+Обычная локальная сборка имеет runtime version `dev`. Release version передаётся CI через `-ldflags` из Git tag.
+
+## Тестирование
+
+Основные проверки, которые выполняет CI:
+
+```bash
+go test -count=1 ./...
+cd core && go test -race -count=1 ./...
+cd ../frontend && npm ci && npm test && npm run lint && npm run build
+```
+
+Кроме этого, release workflow проверяет PowerShell release helpers, Windows packaging, Authenticode helper, установку/обновление/удаление installer и финальный набор release artifacts.
 
 ## Документация
 
-- [Релизы форка](../../releases) — опубликованные версии, изменения и готовые артефакты.
-- [ADR 0001: доставка обновлений](docs/adr/0001-update-delivery.md) — release channel, version source, asset selection и safe fallback без self-update.
-- [Windows release guide](docs/windows-release.md) — installer, Authenticode signing, unsigned fallback, installer smoke и SHA-256 checksums.
-- [Issues форка](../../issues) — известные проблемы и текущие задачи.
-- [Upstream PWDTT](https://github.com/luminescq/PWDTT) — исходный desktop-проект.
-- [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) — исходный Android-проект, на базе которого появился PWDTT.
-
-## Дорожная карта
-
-Windows-приёмка автоматической генерации и централизованного управления VK call hashes завершена: реальные хеши создаются, проверяются через VK/TURN/WRAP/DTLS и подтверждены рабочим подключением с трафиком.
+- [GitHub Releases](../../releases) — готовые сборки и release notes.
+- [ADR 0001: доставка обновлений](docs/adr/0001-update-delivery.md) — release channel, version source и безопасный update flow.
+- [Windows release guide](docs/windows-release.md) — installer, Authenticode, unsigned fallback и SHA-256.
+- [Проверка IPv6 leak на Windows](docs/windows-ipv6-leak-check.md) — ручная проверка IPv6-защиты.
+- [VK OAuth](docs/vk-oauth.md) — технические детали авторизации VK.
+- [GitHub Issues](../../issues) — текущие задачи и известные проблемы.
 
 ## Обратная связь
 
-Для ошибок и предложений используйте [GitHub Issues](../../issues). Для проблем подключения приложите отчёт из приложения и укажите платформу, способ подключения и воспроизводимые шаги.
+Для ошибок и предложений используйте [GitHub Issues](../../issues). Для проблем подключения укажите платформу, воспроизводимые шаги и приложите диагностический отчёт из приложения.
 
 ## Происхождение и благодарности
 
-`Regstar2/PWDTT` является GitHub-форком [luminescq/PWDTT](https://github.com/luminescq/PWDTT). Upstream PWDTT создан как desktop-адаптация [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android).
+`Regstar2/pwdtt` является GitHub-форком [luminescq/PWDTT](https://github.com/luminescq/PWDTT). Upstream PWDTT создан как desktop-адаптация [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android).
 
-Общие исправления форка по возможности могут отправляться обратно в upstream отдельными pull request; дополнительные изменения и релизы этого репозитория ведутся независимо.
+Общие исправления по возможности могут отправляться обратно в upstream; дополнительные функции, исправления и релизы этого форка ведутся независимо.
 
 ## Ограничения
 
 - Для работы нужен собственный настроенный WDTT/qWDTT-сервер и рабочие VK call hashes.
-- Поведение зависит от внешней инфраструктуры VK и протокола qWDTT; их изменения могут потребовать обновления клиента.
-- Набор готовых бинарных файлов зависит от конкретного релиза; актуальные артефакты смотрите на странице Releases.
-- Автоматическое создание VK call hashes доступно на Windows и требует Microsoft Edge; ручной ввод хешей сохраняется на всех поддерживаемых платформах.
+- Работа зависит от внешней инфраструктуры VK и протокола qWDTT; их изменения могут потребовать обновления клиента.
+- Автоматическое создание VK call hashes доступно на Windows и требует Microsoft Edge; ручной ввод сохраняется на всех поддерживаемых платформах.
+- Набор готовых бинарных файлов определяется конкретным release.
+- Update flow не выполняет автоматическую замену бинарника: приложение только открывает официальный release asset.
 - Проект не является официальным продуктом VK.
 
 > [!IMPORTANT]
