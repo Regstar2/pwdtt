@@ -18,7 +18,7 @@ type LogEntry struct {
 // GenerateReport собирает отчёт:
 // - Информация об устройстве
 // - Полные логи из файла (все строки)
-func (a *App) GenerateReport(_ []LogEntry) string {
+func (a *App) GenerateReport(entries []LogEntry) string {
 	var sb strings.Builder
 
 	sb.WriteString("=== PWDTT Bug Report ===\n\n")
@@ -36,8 +36,25 @@ func (a *App) GenerateReport(_ []LogEntry) string {
 	sb.WriteString(fmt.Sprintf("- Config: %s\n", configDir()))
 	sb.WriteString("\n")
 
+	if len(entries) > 0 {
+		sb.WriteString("## UI and structured diagnostics\n")
+		sb.WriteString("\`\`\`\n")
+		for _, entry := range entries {
+			level := strings.ToUpper(strings.TrimSpace(entry.Level))
+			if level == "" {
+				level = "INFO"
+			}
+			sb.WriteString(fmt.Sprintf("[%s] [%s] %s", entry.Time, level, entry.Message))
+			if entry.Count > 1 {
+				sb.WriteString(fmt.Sprintf(" (x%d)", entry.Count))
+			}
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\`\`\`\n\n")
+	}
+
 	// === Полные логи из файла ===
-	sb.WriteString("## Logs\n")
+	sb.WriteString("## Session log file\n")
 	logContent := a.store.ReadLatestLog()
 	if logContent == "" {
 		sb.WriteString("(no logs)\n")
