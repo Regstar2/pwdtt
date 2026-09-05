@@ -13,7 +13,7 @@ Installer использует постоянный `AppId`, поэтому по
 
 ## Installer toolchain
 
-CI использует GitHub-hosted `windows-2025` и Inno Setup `6.7.1`. Workflow проверяет фактическую версию `ISCC.exe` и падает при неожиданном изменении toolchain, чтобы обновление packaging tool было явным.
+CI использует GitHub-hosted `windows-2025` и явно устанавливает Chocolatey package `innosetup` версии `6.7.1`. После установки workflow проверяет локальную package version и наличие `ISCC.exe`. Версия `6.7.1` является частью воспроизводимой release toolchain и не берётся из `latest`.
 
 Перед публикацией CI выполняет smoke:
 
