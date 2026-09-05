@@ -279,12 +279,15 @@ func (a *App) appContext() context.Context {
 }
 
 func (a *App) beginVKOperation() (context.Context, func(), error) {
+	return a.beginVKOperationWithParent(a.appContext())
+}
+
+func (a *App) beginVKOperationWithParent(parent context.Context) (context.Context, func(), error) {
 	a.vkMu.Lock()
 	defer a.vkMu.Unlock()
 	if a.vkCancel != nil {
 		return nil, nil, errors.New("операция VK уже выполняется")
 	}
-	parent := a.ctx
 	if parent == nil {
 		parent = context.Background()
 	}
