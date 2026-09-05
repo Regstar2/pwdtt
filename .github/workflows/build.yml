@@ -102,9 +102,38 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  release-scripts:
+    name: Release helper smoke
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test checksum and release-note generation
+        shell: pwsh
+        run: |
+          $dist = Join-Path $env:RUNNER_TEMP 'pwdtt-release-smoke'
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          foreach ($name in @(
+            'pwdtt-linux-amd64',
+            'pwdtt-windows-amd64.exe',
+            'pwdtt-windows-amd64-setup.exe',
+            'PWDTT-macos.zip'
+          )) {
+            Set-Content -LiteralPath (Join-Path $dist $name) -Value "test-$name"
+          }
+          $status = Join-Path $dist 'windows-signing-status.txt'
+          Set-Content -LiteralPath $status -Value 'Authenticode: unsigned CI smoke fixture'
+          ./scripts/release.ps1 -Version 'v0.0.0-ci.1' -DistDir $dist -SigningStatusFile $status
+          $checksums = @(Get-Content -LiteralPath (Join-Path $dist 'SHA256SUMS'))
+          if ($checksums.Count -ne 4) {
+            throw "Expected four payload checksums, got $($checksums.Count)"
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $dist 'RELEASE_NOTES.md'))) {
+            throw 'RELEASE_NOTES.md was not generated'
+          }
   build-linux-windows:
     name: Build Linux and Windows
-    needs: [go-root, core-race, windows-backend, frontend]
+    needs: [go-root, core-race, windows-backend, frontend, release-scripts]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -154,16 +183,29 @@ jobs:
           name: pwdtt-linux-amd64
           path: build/bin/pwdtt-linux-amd64
 
-      - name: Upload Windows artifact
-        if: github.event_name != 'pull_request'
+      - name: Upload raw Windows portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pwdtt-windows-amd64
+          name: pwdtt-windows-portable-raw
           path: build/bin/pwdtt-windows-amd64.exe
+          retention-days: 2
 
-  build-macos:
-    name: Build macOS
-    needs: [go-root, core-race, windows-backend, frontend]
+  windows-package:
+    name: Windows installer and signing
+    needs: [build-linux-windows]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve package version
+        shell: pwsh
+        run: |
+          $version = 'dev'
+          $versionInfo = '0.0.0.0'
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+            if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?    name: Build macOS
+    needs: [go-root, core-race, windows-backend, frontend, release-scripts]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -207,22 +249,45 @@ jobs:
           path: build/bin/PWDTT-macos.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux-windows, build-macos]
-    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') && github.actor == github.repository_owner
+    needs: [build-linux-windows, windows-package, build-macos]
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Verify exact tag source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+
+      - name: Refuse to overwrite an existing release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
           name: pwdtt-linux-amd64
           path: dist
 
-      - name: Download Windows artifact
+      - name: Download final Windows package
         uses: actions/download-artifact@v4
         with:
-          name: pwdtt-windows-amd64
+          name: pwdtt-windows-package
           path: dist
 
       - name: Download macOS artifact
@@ -231,15 +296,44 @@ jobs:
           name: pwdtt-macos
           path: dist
 
-      - name: List dist contents
-        run: find dist/ -maxdepth 3 -ls
+      - name: Generate SHA-256 checksums and release notes
+        shell: pwsh
+        run: ./scripts/release.ps1 -Version $env:GITHUB_REF_NAME -DistDir 'dist' -SigningStatusFile 'dist/windows-signing-status.txt'
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          files: |
-            dist/pwdtt-linux-amd64
-            dist/pwdtt-windows-amd64.exe
-            dist/PWDTT-macos.zip
+      - name: Verify final release payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            dist/pwdtt-linux-amd64 \
+            dist/pwdtt-windows-amd64.exe \
+            dist/pwdtt-windows-amd64-setup.exe \
+            dist/PWDTT-macos.zip \
+            dist/SHA256SUMS \
+            dist/RELEASE_NOTES.md; do
+            test -s "$file"
+          done
+          test "$(wc -l < dist/SHA256SUMS)" -eq 4
+          cat dist/SHA256SUMS
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file dist/RELEASE_NOTES.md \
+            "${prerelease[@]}" \
+            dist/pwdtt-linux-amd64 \
+            dist/pwdtt-windows-amd64.exe \
+            dist/pwdtt-windows-amd64-setup.exe \
+            dist/PWDTT-macos.zip \
+            dist/SHA256SUMS
