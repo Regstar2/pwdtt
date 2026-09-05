@@ -835,7 +835,10 @@ func (a *App) storedVKHashCheck(id, profileName string) (VKHashCheck, bool) {
 	return check, ok
 }
 
-func (a *App) prepareVKHashes(params ConnectParams, operationID string) ([]string, error) {
+func (a *App) prepareVKHashes(parent context.Context, params ConnectParams, operationID string) ([]string, error) {
+	if parent == nil {
+		parent = a.appContext()
+	}
 	localHashes, err := normalizeVKHashList(params.Hashes)
 	if err != nil {
 		return nil, err
@@ -910,7 +913,7 @@ func (a *App) prepareVKHashes(params ConnectParams, operationID string) ([]strin
 		}
 	}
 
-	preflightCtx, cancel := context.WithTimeout(a.appContext(), vkHashPreflightTimeout)
+	preflightCtx, cancel := context.WithTimeout(parent, vkHashPreflightTimeout)
 	defer cancel()
 	started := time.Now()
 
@@ -953,6 +956,10 @@ func (a *App) prepareVKHashes(params ConnectParams, operationID string) ([]strin
 		case "canceled":
 			break
 		}
+	}
+
+	if parent.Err() != nil {
+		return nil, fmt.Errorf("подключение отменено: %w", parent.Err())
 	}
 
 	usable := make([]VKHashEntry, 0, len(fallback))
