@@ -47,6 +47,9 @@ jobs:
       - name: Compile Windows backend tests
         run: GOOS=windows GOARCH=amd64 go test -c ./backend -o /tmp/pwdtt-backend-windows.test.exe
 
+      - name: Verify Windows GUI stays asInvoker
+        run: grep -Fq '<requestedExecutionLevel level="asInvoker" uiAccess="false"/>' build/windows/wails.exe.manifest
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
