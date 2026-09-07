@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -352,7 +353,7 @@ func validateTelegramResPQ(datagram []byte, expectedNonce [16]byte) bool {
 		if binary.LittleEndian.Uint32(datagram[offset:offset+4]) != resPQConstructor {
 			continue
 		}
-		if !equalBytes(datagram[offset+4:offset+20], expectedNonce[:]) {
+		if !bytes.Equal(datagram[offset+4:offset+20], expectedNonce[:]) {
 			continue
 		}
 
