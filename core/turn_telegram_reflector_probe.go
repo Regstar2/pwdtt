@@ -19,8 +19,6 @@ const defaultTelegramReflectorProbeTimeout = 45 * time.Second
 
 var telegramReflectorProbeSequence atomic.Int64
 
-// TelegramReflectorProbeConfig describes a one-shot Telegram VoIP reflector
-// reachability probe through VK/OK TURN UDP.
 type TelegramReflectorProbeConfig struct {
 	Hash       string
 	Target     string
@@ -28,20 +26,14 @@ type TelegramReflectorProbeConfig struct {
 	Timeout    time.Duration
 }
 
-// TelegramReflectorProbeResult contains only non-secret diagnostic data.
 type TelegramReflectorProbeResult struct {
-	TurnAddress   string
-	RelayAddress  string
-	Target        string
+	TurnAddress    string
+	RelayAddress   string
+	Target         string
 	ResponseSource string
-	ResponseBytes int
+	ResponseBytes  int
 }
 
-// ProbeTelegramReflector sends the UDP reflector hello used by current tgcalls
-// through a VK/OK TURN UDP allocation.
-//
-// Target and peer_tag are dynamic per Telegram call and must come from a
-// phoneConnection entry for an active call. The peer_tag is never logged.
 func ProbeTelegramReflector(parent context.Context, cfg TelegramReflectorProbeConfig) (TelegramReflectorProbeResult, error) {
 	var result TelegramReflectorProbeResult
 
@@ -58,6 +50,10 @@ func ProbeTelegramReflector(parent context.Context, cfg TelegramReflectorProbeCo
 	if target == "" {
 		return result, fmt.Errorf("Telegram reflector target is required")
 	}
+	if looksLikePlaceholder(target) {
+		return result, fmt.Errorf("Telegram reflector target is still a placeholder: %q", target)
+	}
+
 	targetAddr, err := net.ResolveUDPAddr("udp", target)
 	if err != nil {
 		return result, fmt.Errorf("resolve Telegram reflector target %q: %w", target, err)
@@ -214,19 +210,27 @@ func probeTelegramReflectorAtEndpoint(
 	}
 }
 
+// buildTelegramReflectorHello accepts either the 12-byte peer_tag prefix that
+// tgcalls actually uses, or the original 16-byte phoneConnection peer_tag.
+// Current tgcalls discards the last four bytes and replaces them with a fresh
+// local random tag before sending the reflector hello.
 func buildTelegramReflectorHello(peerTagHex string) ([]byte, []byte, error) {
 	peerTagHex = strings.TrimSpace(peerTagHex)
 	if peerTagHex == "" {
-		return nil, nil, fmt.Errorf("Telegram peer_tag is required")
+		return nil, nil, fmt.Errorf("Telegram peer_tag prefix is required")
+	}
+	if looksLikePlaceholder(peerTagHex) {
+		return nil, nil, fmt.Errorf("Telegram peer_tag is still a placeholder")
 	}
 
 	peerTag, err := hex.DecodeString(peerTagHex)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode Telegram peer_tag hex: %w", err)
 	}
-	if len(peerTag) != 16 {
-		return nil, nil, fmt.Errorf("Telegram peer_tag must be exactly 16 bytes (32 hex characters), got %d bytes", len(peerTag))
+	if len(peerTag) != 12 && len(peerTag) != 16 {
+		return nil, nil, fmt.Errorf("Telegram peer_tag must be a 12-byte prefix (24 hex characters) or full 16 bytes (32 hex characters), got %d bytes", len(peerTag))
 	}
+	peerTagPrefix := peerTag[:12]
 
 	localTag := make([]byte, 4)
 	for {
@@ -239,7 +243,7 @@ func buildTelegramReflectorHello(peerTagHex string) ([]byte, []byte, error) {
 	}
 
 	packet := make([]byte, 0, 40)
-	packet = append(packet, peerTag[:12]...)
+	packet = append(packet, peerTagPrefix...)
 	packet = append(packet, localTag...)
 	for i := 0; i < 12; i++ {
 		packet = append(packet, 0xff)
@@ -250,8 +254,12 @@ func buildTelegramReflectorHello(peerTagHex string) ([]byte, []byte, error) {
 	binary.BigEndian.PutUint64(pingValue[:], 123)
 	packet = append(packet, pingValue[:]...)
 
-	prefix := append([]byte(nil), peerTag[:12]...)
+	prefix := append([]byte(nil), peerTagPrefix...)
 	return packet, prefix, nil
+}
+
+func looksLikePlaceholder(value string) bool {
+	return strings.Contains(value, "<") || strings.Contains(value, ">")
 }
 
 func sameUDPAddr(addr net.Addr, expected *net.UDPAddr) bool {

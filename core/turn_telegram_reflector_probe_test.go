@@ -14,17 +14,27 @@ func TestProbeTelegramReflectorRejectsEmptyHash(t *testing.T) {
 	}
 }
 
-func TestBuildTelegramReflectorHello(t *testing.T) {
-	const peerTag = "00112233445566778899aabbccddeeff"
+func TestProbeTelegramReflectorRejectsPlaceholderTarget(t *testing.T) {
+	_, err := ProbeTelegramReflector(context.Background(), TelegramReflectorProbeConfig{
+		Hash:   "test",
+		Target: "<TELEGRAM_REFLECTOR_IP:PORT>",
+	})
+	if err == nil || !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("expected placeholder validation error, got %v", err)
+	}
+}
 
-	packet, prefix, err := buildTelegramReflectorHello(peerTag)
+func TestBuildTelegramReflectorHelloFromPrefix(t *testing.T) {
+	const prefix = "00112233445566778899aabb"
+
+	packet, gotPrefix, err := buildTelegramReflectorHello(prefix)
 	if err != nil {
 		t.Fatalf("buildTelegramReflectorHello failed: %v", err)
 	}
 	if len(packet) != 40 {
 		t.Fatalf("packet length=%d, want 40", len(packet))
 	}
-	if got := len(prefix); got != 12 {
+	if got := len(gotPrefix); got != 12 {
 		t.Fatalf("prefix length=%d, want 12", got)
 	}
 	if packet[28] != 0xfe {
@@ -35,9 +45,20 @@ func TestBuildTelegramReflectorHello(t *testing.T) {
 	}
 }
 
+func TestBuildTelegramReflectorHelloAcceptsFullPeerTag(t *testing.T) {
+	const peerTag = "00112233445566778899aabbccddeeff"
+	_, prefix, err := buildTelegramReflectorHello(peerTag)
+	if err != nil {
+		t.Fatalf("buildTelegramReflectorHello failed: %v", err)
+	}
+	if len(prefix) != 12 {
+		t.Fatalf("prefix length=%d, want 12", len(prefix))
+	}
+}
+
 func TestBuildTelegramReflectorHelloRejectsInvalidPeerTag(t *testing.T) {
 	_, _, err := buildTelegramReflectorHello("0011")
-	if err == nil || !strings.Contains(err.Error(), "exactly 16 bytes") {
+	if err == nil || !strings.Contains(err.Error(), "12-byte prefix") {
 		t.Fatalf("expected peer_tag length error, got %v", err)
 	}
 }

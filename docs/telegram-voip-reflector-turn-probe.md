@@ -2,42 +2,56 @@
 
 ## Что проверяется
 
-Этот probe проверяет не MTProto-сообщения, а UDP relay для Telegram-звонков.
+Этот probe проверяет UDP relay для Telegram-звонков, а не обычный MTProto messaging.
 
-Актуальный Telegram Desktop объявляет для звонков `udp_p2p` и `udp_reflector`. Для обычного `phoneConnection` сервер возвращает:
+Актуальный Telegram Desktop объявляет для звонков `udp_p2p` и `udp_reflector`. Для обычного `phoneConnection` сервер возвращает `ip`, `port` и 16-байтовый `peer_tag`.
 
-- `ip`;
-- `port`;
-- `peer_tag` длиной 16 байт.
+Текущий tgcalls фактически использует только первые 12 байт `peer_tag`: последние 4 байта заменяются случайным локальным tag перед отправкой reflector hello. Поэтому probe принимает либо 12-байтовый prefix, либо полный 16-байтовый peer tag.
 
-Текущий tgcalls использует эти данные для Telegram reflector. Probe воспроизводит его UDP hello поверх уже подтверждённого VK/OK TURN UDP allocation.
+## Автоматическое получение target и peer-tag-prefix на Windows
 
-Схема:
+Не подставляйте примеры вида `<TELEGRAM_REFLECTOR_IP:PORT>` буквально.
 
-```text
-PWDTT probe
-  -> VK/OK TURN UDP allocation
-  -> Telegram VoIP reflector ip:port
-  -> Telegram reflector response
-  -> VK/OK TURN relay
-  -> probe
+Встроенный Windows Packet Monitor (`pktmon`) может записать короткий активный Telegram-звонок. Запускайте PowerShell от администратора.
+
+Из корня репозитория:
+
+```powershell
+pktmon stop 2>$null
+pktmon filter remove 2>$null
+pktmon start --capture --pkt-size 0 --file-name telegram-call.etl
 ```
 
-## Запуск
+После запуска capture начните обычный 1:1 звонок в Telegram Desktop, дождитесь соединения и подержите звонок несколько секунд. Затем:
 
-Нужны данные одного UDP `phoneConnection` из активного Telegram-звонка:
+```powershell
+pktmon stop
+pktmon etl2pcap telegram-call.etl --out telegram-call.pcapng
 
-- reflector `ip:port`;
-- `peer_tag` как 32 hex-символа.
+go run ./cmd/telegram-reflector-discover -pcap ".\telegram-call.pcapng"
+```
 
-`peer_tag` чувствителен в рамках конкретного звонка: не публикуйте его. CLI не выводит его в лог.
+Discovery ищет точную 40-байтовую сигнатуру reflector hello из текущего tgcalls и выводит:
+
+```text
+Target: 149.x.x.x:port
+Peer tag prefix: 24_hex_characters
+Probe arguments:
+  -target "..." -peer-tag-prefix "..."
+```
+
+Если найдено несколько кандидатов, сначала проверяйте каждый UDP target по очереди.
+
+## Запуск probe
 
 ```powershell
 go run ./cmd/turn-telegram-reflector-probe `
   -hash "<VK_HASH>" `
-  -target "<TELEGRAM_REFLECTOR_IP:PORT>" `
-  -peer-tag "<32_HEX_PEER_TAG>"
+  -target "<REAL_TARGET_FROM_DISCOVERY>" `
+  -peer-tag-prefix "<24_HEX_PREFIX_FROM_DISCOVERY>"
 ```
+
+Старый параметр `-peer-tag` с полным 32-символьным hex также поддерживается.
 
 ## Критерий успеха
 
@@ -46,14 +60,14 @@ go run ./cmd/turn-telegram-reflector-probe `
 1. VK/OK TURN UDP allocation создан;
 2. tgcalls-compatible reflector hello отправлен к указанному Telegram endpoint;
 3. ответ получен именно от этого `ip:port`;
-4. первые 12 байт peer tag в ответе совпадают с активным звонком.
+4. первые 12 байт peer tag в ответе совпадают с обнаруженным prefix.
 
 Успех подтвердит, что Telegram VoIP UDP reflector доступен через VK TURN без `wdtt-server`/VPS.
 
 ## Ограничения
 
-- endpoint и peer_tag динамические и относятся к активному звонку;
+- endpoint и peer-tag-prefix динамические и относятся к конкретному активному звонку;
+- capture содержит сетевые метаданные звонка, поэтому не публикуйте `.etl`/`.pcapng`;
 - probe не инициирует Telegram-звонок и не получает `phone.getCall` самостоятельно;
 - probe не передаёт голос/видео;
-- обычный MTProto messaging по-прежнему остаётся TCP/HTTP stream-транспортом;
-- peer_tag не следует сохранять в issue, CI logs или публичные артефакты.
+- обычный MTProto messaging по-прежнему остаётся stream-транспортом.
