@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	hash := flag.String("hash", "", "VK call hash or join link")
+	hash := flag.String("hash", "", "VK call hash (the part after /call/join/)")
 	target := flag.String("target", "example.com:80", "TCP target in host:port form")
 	mode := flag.String("mode", "connect", "probe mode: connect or http")
 	timeout := flag.Duration("timeout", 45*time.Second, "overall probe timeout")
