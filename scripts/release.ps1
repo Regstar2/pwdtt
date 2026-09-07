@@ -49,10 +49,19 @@ $sourceLine = if ([string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) {
     "Source commit: $env:GITHUB_SHA"
 }
 
+$releaseNotesRU = "https://github.com/Regstar2/pwdtt/blob/$Version/docs/releases/$Version.md"
+$releaseNotesEN = "https://github.com/Regstar2/pwdtt/blob/$Version/docs/releases/$($Version)_EN.md"
+
 $notes = @"
 # PWDTT $Version
 
 $sourceLine
+
+Этот patch-релиз исправляет Windows VK browser-auth flow в Microsoft Edge: завершение launcher-процесса Edge больше не обрывает успешную авторизацию в PWDTT.
+
+Полные release notes:
+- Русский: $releaseNotesRU
+- English: $releaseNotesEN
 
 ## Установка и обновление
 
