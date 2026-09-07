@@ -50,8 +50,6 @@ func waitForLegacyVKSession(ctx context.Context, session *vkEdgeSession) (bool, 
 		select {
 		case <-ctx.Done():
 			return false, context.Canceled
-		case <-session.waitCh:
-			return false, errors.New("окно авторизации VK закрыто")
 		case <-time.After(vkEdgePollInterval):
 		}
 

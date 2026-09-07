@@ -180,8 +180,6 @@ func (s *vkEdgeSession) obtainVKCallsTokenViaBrowser(ctx context.Context) (vkLeg
 		select {
 		case <-waitCtx.Done():
 			return vkLegacyToken{}, fmt.Errorf("VK Calls OAuth не вернул access token (%s)", lastDiag)
-		case <-s.waitCh:
-			return vkLegacyToken{}, fmt.Errorf("окно VK Calls OAuth закрыто (%s)", lastDiag)
 		case <-time.After(vkEdgePollInterval):
 		}
 
