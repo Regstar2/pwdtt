@@ -32,7 +32,7 @@ PWDTT поднимает локальный WireGuard-интерфейс и пе
 
 ## Статус проекта
 
-PWDTT активно развивается как независимый поддерживаемый форк `luminescq/PWDTT`. Последний стабильный релиз — [v1.8.0](../../releases/tag/v1.8.0).
+PWDTT активно развивается как независимый поддерживаемый форк `luminescq/PWDTT`. Последний стабильный релиз — [v1.8.1](../../releases/tag/v1.8.1).
 
 В форке поддерживается собственный release-канал `Regstar2/pwdtt`, а изменения upstream и форка рассматриваются отдельно. Текущие задачи и известные проблемы ведутся в [GitHub Issues](../../issues).
 
@@ -245,6 +245,7 @@ cd ../frontend && npm ci && npm test && npm run lint && npm run build
 ## Документация
 
 - [GitHub Releases](../../releases) — готовые сборки и release notes.
+- [v1.8.1: полные release notes](docs/releases/v1.8.1.md) · [English](docs/releases/v1.8.1_EN.md).
 - [ADR 0001: доставка обновлений](docs/adr/0001-update-delivery.md) — release channel, version source и безопасный update flow.
 - [Windows release guide](docs/windows-release.md) — installer, Authenticode, unsigned fallback и SHA-256.
 - [Проверка IPv6 leak на Windows](docs/windows-ipv6-leak-check.md) — ручная проверка IPv6-защиты.
