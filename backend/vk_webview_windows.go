@@ -40,6 +40,7 @@ type vkEdgeSession struct {
 	port      int
 	nextID    int64
 	closed    atomic.Bool
+	cdpClosed atomic.Bool
 	http      *http.Client
 	userAgent string
 }
@@ -160,9 +161,10 @@ func (s *vkEdgeSession) waitForPageTarget(ctx context.Context) (vkEdgeTarget, er
 	for {
 		select {
 		case <-ctx.Done():
+			if s.closed.Load() {
+				return vkEdgeTarget{}, errors.New("Microsoft Edge не предоставил управляемое окно VK после запуска")
+			}
 			return vkEdgeTarget{}, errors.New("Microsoft Edge не открыл окно VK вовремя")
-		case <-s.waitCh:
-			return vkEdgeTarget{}, errors.New("Microsoft Edge завершился до открытия VK")
 		default:
 		}
 
@@ -199,6 +201,7 @@ func (s *vkEdgeSession) call(ctx context.Context, method string, params map[stri
 		_ = s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	}
 	if err := s.conn.WriteJSON(message); err != nil {
+		s.cdpClosed.Store(true)
 		return nil, err
 	}
 
@@ -210,6 +213,7 @@ func (s *vkEdgeSession) call(ctx context.Context, method string, params map[stri
 		}
 		_, payload, err := s.conn.ReadMessage()
 		if err != nil {
+			s.cdpClosed.Store(true)
 			return nil, err
 		}
 		var response vkCDPResponse
@@ -307,6 +311,9 @@ func (s *vkEdgeSession) navigate(ctx context.Context, targetURL string) error {
 }
 
 func (s *vkEdgeSession) exited() bool {
+	if s.conn != nil {
+		return s.cdpClosed.Load()
+	}
 	return s.closed.Load()
 }
 
