@@ -1,52 +1,74 @@
-# Эксперимент: TURN TCP / RFC 6062 без VPS
+# Эксперимент: прямой TURN egress без VPS
 
-## Гипотеза
+## Цель
 
-Проверить, разрешает ли используемая PWDTT инфраструктура VK/OK TURN:
+Проверить, может ли используемая PWDTT инфраструктура VK/OK TURN самостоятельно передавать трафик к внешним peer без `wdtt-server` и VPS.
 
-1. TCP allocation по RFC 6062;
-2. исходящий TCP `CONNECT` к произвольному peer;
-3. двустороннюю передачу данных без `wdtt-server` и без VPS.
+Эксперимент не меняет обычный режим PWDTT. Все проверки запускаются отдельными CLI-командами.
 
-Эксперимент не меняет обычный режим PWDTT. Он запускается отдельной CLI-командой.
+## TCP / RFC 6062
 
-## Запуск
-
-Нужен рабочий VK call hash, который PWDTT уже умеет использовать для получения TURN credentials.
-
-Из корня репозитория:
+Команда:
 
 ```powershell
 go run ./cmd/turn-tcp-probe -hash "<VK_HASH>" -target "example.com:80" -mode http
 ```
 
-Успешный результат должен содержать:
+Фактический результат проверки 2026-09-07: оба полученных TURN endpoint отклонили `AllocateTCP()`:
 
 ```text
+442: TCP Transport is not allowed by the TURN Server configuration
+```
+
+Следовательно, протестированная конфигурация VK/OK TURN не предоставляет TCP relay по RFC 6062. До внешнего TCP peer выполнение не дошло.
+
+## UDP direct egress
+
+Следующая гипотеза проверяет обычный UDP allocation, который уже используется WDTT, но peer теперь является не `wdtt-server`, а публичным DNS-сервером.
+
+Схема:
+
+```text
+PWDTT probe
+  ↓
+VK TURN Allocate()
+  ↓
+1.1.1.1:53
+  ↓
+DNS response
+```
+
+Запуск из корня репозитория:
+
+```powershell
+go run ./cmd/turn-udp-probe -hash "<VK_HASH>" -target "1.1.1.1:53" -name "example.com"
+```
+
+Успешный результат:
+
+```text
+TURN UDP direct-egress probe
+...
 SUCCESS
 TURN endpoint: ...
 Relayed address: ...
-Target: ...
-Response preview:
-HTTP/1.1 ...
+Target: 1.1.1.1:53
+Response source: ...
+DNS answers: ...
+Response bytes: ...
 ```
 
-Это подтверждает одновременно TCP allocation, исходящий TCP peer и двустороннюю передачу данных через TURN.
+Успех означает, что TURN relay передал DNS query непосредственно внешнему UDP peer и вернул валидный DNS response с тем же transaction ID. Это подтверждает arbitrary UDP egress для проверенного endpoint без VPS.
 
-Для проверки только установки TCP-соединения:
+## Интерпретация ошибок UDP
 
-```powershell
-go run ./cmd/turn-tcp-probe -hash "<VK_HASH>" -target "telegram.org:443" -mode connect
-```
+- ошибка `Allocate UDP` — обычный UDP allocation не был создан;
+- ошибка `send DNS query` / permission-related error — внешний peer запрещён или недоступен;
+- timeout на `read DNS response` — запрос ушёл, но валидный ответ через relay не получен;
+- ошибка validation — через relay пришёл пакет, но он не является ожидаемым валидным DNS response;
+- `SUCCESS` — подтверждена двусторонняя UDP-передача к публичному peer.
 
-## Интерпретация ошибок
-
-- ошибка на `AllocateTCP` — сервер не поддерживает или политикой запрещает TCP allocation;
-- ошибка на `DialTCP` / `CreatePermission` / `Connect` — allocation создан, но peer или исходящее TCP-соединение запрещены/недоступны;
-- `SUCCESS` в режиме `connect` — TCP-соединение к peer через TURN установлено;
-- `SUCCESS` + HTTP response в режиме `http` — подтверждена двусторонняя передача прикладных данных.
-
-CLI перебирает TURN endpoints, полученные для указанного VK hash, и выводит ошибки без username/password.
+CLI перебирают TURN endpoints, полученные для указанного VK hash, и не выводят TURN username/password.
 
 ## Ограничения
 
@@ -55,5 +77,6 @@ CLI перебирает TURN endpoints, полученные для указа�
 - не поднимает SOCKS5;
 - не интегрирован в GUI;
 - не маршрутизирует системный трафик;
-- не гарантирует, что политика TURN одинакова для всех endpoint/аккаунтов/сетей;
+- UDP probe проверяет только один безопасный DNS-сценарий;
+- результат одного endpoint не гарантирует одинаковую политику всех TURN-серверов;
 - работа зависит от внешней инфраструктуры VK/OK и может измениться независимо от PWDTT.
