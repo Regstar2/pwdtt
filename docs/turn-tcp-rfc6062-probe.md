@@ -2,81 +2,133 @@
 
 ## Цель
 
-Проверить, может ли используемая PWDTT инфраструктура VK/OK TURN самостоятельно передавать трафик к внешним peer без `wdtt-server` и VPS.
+Проверить исходную гипотезу PWDTT: можно ли исключить wdtt-server/VPS и передавать трафик через инфраструктуру VK/OK TURN непосредственно внешним peer.
 
-Эксперимент не меняет обычный режим PWDTT. Все проверки запускаются отдельными CLI-командами.
+Эксперимент не меняет обычный runtime PWDTT. Все проверки запускаются отдельными CLI-командами.
 
-## TCP / RFC 6062
+## Что уже подтверждено вручную
 
-Команда:
+### TCP / RFC 6062
 
-```powershell
-go run ./cmd/turn-tcp-probe -hash "<VK_HASH>" -target "example.com:80" -mode http
-```
+Оба полученных 2026-09-07 TURN endpoint приняли control/auth path, но отклонили TCP allocation:
 
-Фактический результат проверки 2026-09-07: оба полученных TURN endpoint отклонили `AllocateTCP()`:
-
-```text
+~~~text
 442: TCP Transport is not allowed by the TURN Server configuration
-```
+~~~
 
-Следовательно, протестированная конфигурация VK/OK TURN не предоставляет TCP relay по RFC 6062. До внешнего TCP peer выполнение не дошло.
+Следовательно, стандартный RFC 6062 TURN TCP relay на протестированной конфигурации выключен.
 
-## UDP direct egress
+### UDP direct egress
 
-Следующая гипотеза проверяет обычный UDP allocation, который уже используется WDTT, но peer теперь является не `wdtt-server`, а публичным DNS-сервером.
+DNS-проверка к 1.1.1.1:53 создавала UDP allocation и отправляла пакет, но ответ не возвращался.
 
-Схема:
+Контрольная STUN-проверка затем успешно прошла через внешний peer:
 
-```text
-PWDTT probe
-  ↓
-VK TURN Allocate()
-  ↓
-1.1.1.1:53
-  ↓
-DNS response
-```
+~~~text
+TURN endpoint: 91.231.135.154:19302
+Relayed address: 91.231.135.154:42880
+Target: 162.159.207.0:3478
+Response source: 162.159.207.0:3478
+STUN mapped address: 91.231.135.154:42880
+Response bytes: 32
+~~~
 
-Запуск из корня репозитория:
+Это подтверждает двусторонний внешний UDP egress через протестированный VK/OK TURN без VPS. Таймаут DNS/53 не является доказательством общего запрета произвольного UDP.
 
-```powershell
-go run ./cmd/turn-udp-probe -hash "<VK_HASH>" -target "1.1.1.1:53" -name "example.com"
-```
+## Основной no-VPS verdict runner
 
-Успешный результат:
+Для исходной задачи используйте:
 
-```text
-TURN UDP direct-egress probe
-...
-SUCCESS
-TURN endpoint: ...
-Relayed address: ...
-Target: 1.1.1.1:53
-Response source: ...
-DNS answers: ...
-Response bytes: ...
-```
+~~~powershell
+Set-Location "C:\base\projects\PWDTT"
+$vk = Read-Host "VK call hash or full join link"
+go run ./cmd/turn-no-vps-probe -hash $vk
+~~~
 
-Успех означает, что TURN relay передал DNS query непосредственно внешнему UDP peer и вернул валидный DNS response с тем же transaction ID. Это подтверждает arbitrary UDP egress для проверенного endpoint без VPS.
+Runner выполняет два этапа:
 
-## Интерпретация ошибок UDP
+1. STUN control: подтверждает, что внешний двусторонний UDP через TURN работает в текущем запуске.
+2. Ordinary Telegram MTProto UDP: пробует production IPv4 DC из встроенного списка Telegram Desktop и все реализованные framing-кандидаты.
 
-- ошибка `Allocate UDP` — обычный UDP allocation не был создан;
-- ошибка `send DNS query` / permission-related error — внешний peer запрещён или недоступен;
-- timeout на `read DNS response` — запрос ушёл, но валидный ответ через relay не получен;
-- ошибка validation — через relay пришёл пакет, но он не является ожидаемым валидным DNS response;
-- `SUCCESS` — подтверждена двусторонняя UDP-передача к публичному peer.
+Список DC по умолчанию:
 
-CLI перебирают TURN endpoints, полученные для указанного VK hash, и не выводят TURN username/password.
+~~~text
+149.154.175.50:443
+149.154.167.51:443
+95.161.76.100:443
+149.154.175.100:443
+149.154.167.91:443
+149.154.171.5:443
+~~~
+
+Список можно заменить:
+
+~~~powershell
+go run ./cmd/turn-no-vps-probe -hash $vk -telegram-targets "149.154.167.51:443,149.154.167.91:443"
+~~~
+
+Runner принимает как raw hash, так и полный https://vk.com/call/join/... URL и не печатает TURN credentials.
+
+## Интерпретация verdict
+
+### UDP control failed
+
+~~~text
+UDP egress: NOT CONFIRMED
+Ordinary Telegram MTProto over TURN UDP: NOT TESTED
+~~~
+
+Сначала нужно восстановить рабочий VK hash/TURN allocation или выяснить изменение политики TURN.
+
+### UDP PASS, Telegram no response
+
+~~~text
+UDP egress: PASS
+Ordinary Telegram MTProto over tested UDP framings/DCs: NO VALID RESPONSE
+Direct no-VPS Telegram messaging: NOT CONFIRMED
+~~~
+
+Это означает, что ограничение уже не в общем UDP egress. Оно находится на уровне Telegram transport/framing/peer policy. Это не доказывает математическую невозможность UDP transport, но протестированные варианты не дают обычный MTProto exchange.
+
+### Telegram PASS
+
+Успех принимается только после получения валидного plaintext resPQ#05162463 с nonce, совпадающим с отправленным req_pq_multi.
+
+~~~text
+UDP egress: PASS
+Ordinary Telegram MTProto over TURN UDP: PASS
+Direct no-VPS Telegram messaging transport: CONFIRMED AT PROTOCOL-PROBE LEVEL
+~~~
+
+После этого имеет смысл писать persistent transport adapter. До такого результата интегрировать эксперимент в GUI/WireGuard runtime не следует.
+
+## Отдельные probes
+
+DNS:
+
+~~~powershell
+go run ./cmd/turn-udp-probe -hash $vk -target "1.1.1.1:53" -name "example.com"
+~~~
+
+STUN:
+
+~~~powershell
+go run ./cmd/turn-udp-stun-probe -hash $vk
+~~~
+
+Один Telegram DC:
+
+~~~powershell
+go run ./cmd/turn-telegram-mtproto-udp-probe -hash $vk -target "149.154.167.51:443"
+~~~
 
 ## Ограничения
 
-Это диагностический Prototype, а не production proxy:
+Это diagnostic prototype:
 
 - не поднимает SOCKS5;
 - не интегрирован в GUI;
 - не маршрутизирует системный трафик;
-- UDP probe проверяет только один безопасный DNS-сценарий;
-- результат одного endpoint не гарантирует одинаковую политику всех TURN-серверов;
-- работа зависит от внешней инфраструктуры VK/OK и может измениться независимо от PWDTT.
+- RFC 6062 TCP relay на протестированных TURN endpoint выключен;
+- обычный Telegram MTProto-over-UDP остаётся экспериментальной гипотезой до положительного resPQ;
+- политика внешней инфраструктуры VK/OK может измениться независимо от PWDTT.

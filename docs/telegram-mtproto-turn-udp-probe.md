@@ -4,57 +4,58 @@
 
 Test the original no-VPS goal directly:
 
-```text
-Telegram client-side probe
+~~~text
+client-side protocol probe
   -> VK/OK TURN UDP relay
   -> Telegram MTProto DC
   -> MTProto response
   -> VK/OK TURN
   -> probe
-```
+~~~
 
-This is not a Telegram VoIP test.
+This is for ordinary Telegram MTProto, not Telegram VoIP.
 
-## Why this experiment exists
+## Probe
 
-Telegram's current general MTProto documentation still lists UDP as an underlying transport and notes that, with UDP, a response may come from a different IP address. The dedicated transport page currently documents TCP, WebSocket/WSS and HTTP/HTTPS, but not the UDP wire format.
+cmd/turn-telegram-mtproto-udp-probe sends an unauthenticated req_pq_multi directly to one Telegram DC through the VK/OK TURN UDP allocation.
 
-Because there is no current public UDP framing specification, the probe sends a real unauthenticated `req_pq_multi` using several plausible framings:
+Implemented framing candidates:
 
 - raw MTProto plaintext payload;
-- abridged, with and without the TCP-style `0xef` initializer;
-- intermediate, with and without the `0xeeeeeeee` initializer;
-- padded intermediate with `0xdddddddd` initializer;
-- full MTProto transport envelope with sequence number and CRC32.
+- abridged;
+- abridged with the TCP-style 0xef initializer;
+- intermediate;
+- intermediate with 0xeeeeeeee initializer;
+- padded intermediate with 0xdddddddd initializer;
+- full transport envelope with sequence number and CRC32.
 
-No Telegram account or auth key is required for `req_pq_multi`.
+No Telegram account, auth key or API ID is required for req_pq_multi.
 
-## Default Telegram target
+## Single-DC run
 
-The probe defaults to DC2 from Telegram Desktop's built-in DC list:
+~~~powershell
+go run ./cmd/turn-telegram-mtproto-udp-probe -hash "<VK_HASH>" -target "149.154.167.51:443"
+~~~
 
-```text
-149.154.167.51:443
-```
+## Recommended no-VPS run
 
-An alternate DC can be supplied with `-target`.
+Use the aggregate runner instead of manually testing one DC:
 
-## Run
+~~~powershell
+$vk = Read-Host "VK call hash or full join link"
+go run ./cmd/turn-no-vps-probe -hash $vk
+~~~
 
-```powershell
-go run ./cmd/turn-telegram-mtproto-udp-probe `
-  -hash "<VK_HASH>" `
-  -target "149.154.167.51:443"
-```
+It first proves current bidirectional UDP egress with a public STUN Binding exchange and then checks all current built-in production IPv4 Telegram Desktop DC targets.
 
 ## Acceptance criterion
 
-The probe prints `SUCCESS` only when a returned UDP datagram contains a valid plaintext MTProto `resPQ#05162463` whose nonce exactly matches the random nonce from the corresponding `req_pq_multi`.
+SUCCESS is printed only when the returned UDP datagram contains a valid plaintext MTProto resPQ#05162463 whose nonce exactly matches the random nonce from the corresponding req_pq_multi.
 
-A timeout is not by itself proof that Telegram has no UDP support: Telegram's general documentation notes that UDP responses may originate from a different server IP. TURN permissions are peer-IP scoped, so such a response can be filtered unless the alternate source IP also has a permission. A positive `resPQ`, however, is definitive proof that ordinary MTProto reaches a Telegram DC through VK TURN without a VPS.
+A timeout is not proof that Telegram has no UDP support. A positive matching resPQ, however, is definitive protocol-level evidence that ordinary MTProto can reach that Telegram DC through VK TURN without a VPS.
 
-## What success would unlock
+## Current interpretation
 
-If this probe succeeds, the next step is to implement a reliable local stream/datagram adapter around the working Telegram UDP transport and then connect Telegram-facing traffic to it.
+Manual STUN testing has already confirmed bidirectional direct external UDP egress through the tested VK/OK TURN endpoint.
 
-If every DC and framing candidate times out, direct ordinary MTProto-over-UDP becomes unlikely and the next no-VPS path to test is Telegram HTTPS/WSS over a UDP-native QUIC carrier.
+Therefore, if the aggregate runner reports STUN PASS but no valid Telegram response across all tested DCs/framing candidates, the remaining obstacle is Telegram transport compatibility or peer policy rather than general TURN UDP egress.
