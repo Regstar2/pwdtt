@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func TestBuildTelegramReqPQMulti(t *testing.T) {
 	if got := binary.LittleEndian.Uint32(payload[20:24]); got != 0xbe7e8ef1 {
 		t.Fatalf("constructor=%#x, want req_pq_multi", got)
 	}
-	if !equalBytes(payload[24:40], nonce[:]) {
+	if !bytes.Equal(payload[24:40], nonce[:]) {
 		t.Fatal("nonce not serialized into req_pq_multi")
 	}
 }
