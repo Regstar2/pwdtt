@@ -76,14 +76,10 @@ func WorkerGroup(
 	}
 
 	hash := tp.Hashes[hashIndex%len(tp.Hashes)]
-	shortHash := hash
-	if len(shortHash) > 8 {
-		shortHash = shortHash[:8]
-	}
 	if groupID == 1 {
 		emitConnectionProgress("vk", "running", "Получение VK-кредов")
 	}
-	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
+	log.Printf("[ГРУППА #%d] Запрос VK-кредов", groupID)
 
 	credStreamID := groupID * 100
 	credentialsStarted := time.Now()
