@@ -144,8 +144,6 @@ func (c *Core) Start() (<-chan Event, error) {
 }
 
 func (c *Core) start() error {
-	setupGlobalResolver()
-
 	// Все log.Printf → в канал событий (с фильтрацией)
 	// Без таймстемпа — UI добавляет своё время
 	log.SetFlags(0)
@@ -178,23 +176,24 @@ func (c *Core) start() error {
 		return fmt.Errorf("Password is required")
 	}
 
-	// Резолв пира
+	// Resolve the peer before the tunnel changes routes, using the OS DNS configuration.
 	c.emitConnectionProgress("dns", "running", "Разрешение адреса сервера")
-	cleanPeerAddr := strings.TrimSpace(c.cfg.PeerAddr)
-	var peer *net.UDPAddr
-	var err error
-	for i := 0; i < 15; i++ {
-		peer, err = net.ResolveUDPAddr("udp", cleanPeerAddr)
-		if err == nil {
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
+	lookupStarted := time.Now()
+	lookupCtx, lookupCancel := context.WithTimeout(ctx, 8*time.Second)
+	peer, err := resolvePeerUDPAddr(lookupCtx, nil, c.cfg.PeerAddr)
+	lookupCancel()
 	if err != nil {
-		c.emitConnectionProgress("dns", "error", "Не удалось разрешить адрес сервера")
+		kind := dnsFailureKind(err)
+		c.emitDiagnostic("DEBUG", "DNS", "peer_lookup", kind, "source=system rcode=unavailable", 0, time.Since(lookupStarted))
+		message := "Не удалось разрешить адрес сервера"
+		if isDNSFailure(err) {
+			message = "DNS/сеть недоступны при разрешении адреса сервера"
+		}
+		c.emitConnectionProgress("dns", "error", message)
 		cancel()
-		return fmt.Errorf("resolve peer: %w", err)
+		return fmt.Errorf("resolve peer: %w", sanitizeDNSFailure(err))
 	}
+	c.emitDiagnostic("DEBUG", "DNS", "peer_lookup", "success", "source=system rcode=unavailable", 0, time.Since(lookupStarted))
 	c.emitConnectionProgress("dns", "success", "Адрес сервера разрешён")
 
 	// WRAP ключ
