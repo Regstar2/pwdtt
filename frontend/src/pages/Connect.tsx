@@ -19,6 +19,8 @@ import type { Server, TunnelState, VKHashMode } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles } from '../../wailsjs/go/backend/App';
 import ConnectionHero from '../components/connect/ConnectionHero';
 import ConnectionProgress from '../components/connect/ConnectionProgress';
+import CaptchaPrompt, { parseCaptchaChallenge } from '../components/connect/CaptchaPrompt';
+import type { CaptchaChallenge } from '../components/connect/CaptchaPrompt';
 import ConnectionStats from '../components/connect/ConnectionStats';
 import ServerSelector from '../components/connect/ServerSelector';
 import { ServerIcon } from '../components/connect/ServerIcon';
@@ -84,6 +86,7 @@ export default function Connect() {
   const [iconMenu, setIconMenu] = useState<{ server: Server; x: number; y: number } | null>(null);
   const [linkFlash, setLinkFlash] = useState(false);
   const [latencies, setLatencies] = useState<Record<string, number | null | undefined>>({});
+  const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
 
   const selectedRef = useRef(selected);
   const linkFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,6 +94,19 @@ export default function Connect() {
   const reconnectAtRef = useRef(0);
 
   useEffect(() => tunnelStore.subscribe(setTunnelState), []);
+  useEffect(() => {
+    const offRequired = EventsOn('captcha_required', (payload: unknown) => {
+      const parsed = parseCaptchaChallenge(payload);
+      if (parsed) setCaptcha(parsed);
+    });
+    const offClosed = EventsOn('captcha_closed', (id: unknown) => {
+      setCaptcha(previous => previous?.requestId === String(id) ? null : previous);
+    });
+    return () => { offRequired(); offClosed(); };
+  }, []);
+  useEffect(() => {
+    if (tunnelState === 'idle') setCaptcha(null);
+  }, [tunnelState]);
   useEffect(() => connectionStore.subscribe(setConnection), []);
   useEffect(() => themeStore.subscribe(setTheme), []);
 
@@ -403,6 +419,7 @@ export default function Connect() {
         />
       </div>
 
+      {captcha && <CaptchaPrompt key={captcha.requestId} challenge={captcha} onDisconnect={() => void handleTunnel()} />}
       {addServerOpen && <AddServer onClose={() => setAddServerOpen(false)} onAdd={handleAdd} />}
       {editServer && (
         <EditServer
