@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCaptchaChallenge } from '../components/connect/CaptchaPrompt';
+import { parseCaptchaChallenge } from '../lib/utils/captchaChallenge';
 
 describe('CAPTCHA UI event parsing', () => {
   const valid = { requestId: '84351ab4-1234-4abc-a123-1234567890ab', mode: 'manual', deadlineMs: 1760555000000 };
