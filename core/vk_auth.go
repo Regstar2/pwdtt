@@ -299,6 +299,8 @@ func vkDelayRandom(ctx context.Context, minMs, maxMs int) error {
 }
 
 func getVkCredsCached(ctx context.Context, link string, streamID int) (string, string, []string, error) {
+	ctx, cancel := context.WithTimeout(ctx, vkCredentialsDeadline)
+	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return "", "", nil, err
 	}
@@ -317,7 +319,14 @@ func getVkCredsCached(ctx context.Context, link string, streamID int) (string, s
 	}
 	cache.mutex.RUnlock()
 
-	cache.mutex.Lock()
+	// A concurrent refresh must not trap canceled streams behind a mutex.
+	for !cache.mutex.TryLock() {
+		select {
+		case <-ctx.Done():
+			return "", "", nil, ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
 	defer cache.mutex.Unlock()
 	if err := ctx.Err(); err != nil {
 		return "", "", nil, err
