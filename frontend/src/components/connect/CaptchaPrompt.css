@@ -1,0 +1,36 @@
+.captcha-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, .55);
+}
+.captcha-dialog {
+  width: min(480px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  padding: 24px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 16px 55px rgba(0, 0, 0, .28);
+}
+.captcha-dialog h2 { margin: 0 0 12px; font-size: 19px; }
+.captcha-dialog p { font-size: 14px; line-height: 1.5; }
+.captcha-time { font-variant-numeric: tabular-nums; font-weight: 700; }
+.captcha-error { color: #e45555; overflow-wrap: anywhere; }
+.captcha-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.captcha-actions button {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: var(--text);
+  color: var(--surface);
+  cursor: pointer;
+}
+.captcha-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.captcha-actions .captcha-secondary { background: var(--bg-3); color: var(--text); }
