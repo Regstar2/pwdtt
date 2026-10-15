@@ -92,14 +92,18 @@ func pruneSessionLogs(dir, active string) error {
 		return logs[i].time.Before(logs[j].time)
 	})
 	var firstErr error
-	for len(logs) > sessionLogRetention {
-		oldest := logs[0]
-		logs = logs[1:]
+	excess := len(logs) - sessionLogRetention
+	for _, oldest := range logs {
+		if excess <= 0 {
+			break
+		}
 		if oldest.name == active {
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, oldest.name)); err != nil {
 			firstErr = errors.Join(firstErr, err)
+		} else {
+			excess--
 		}
 	}
 	return firstErr
