@@ -688,7 +688,7 @@ func solveCaptchaBySelectedMode(
 }
 
 func requestWebViewCaptcha(ctx context.Context, streamID int, captchaErr *VkCaptchaError, mode string, timeout time.Duration) (string, error) {
-	c := getActiveCore()
+	c := captchaCoreFromContext(ctx)
 	if c == nil {
 		return "", errors.New("captcha browser unavailable: no running core")
 	}
