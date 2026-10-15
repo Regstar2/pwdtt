@@ -76,7 +76,9 @@ func ProbeHash(parent context.Context, cfg HashProbeConfig) HashProbeResult {
 	}
 
 	emitHashProbeProgress(cfg, started, "dns", "running", "Разрешение адреса сервера", 0)
-	peer, err := net.ResolveUDPAddr("udp", strings.TrimSpace(cfg.PeerAddr))
+	lookupCtx, lookupCancel := context.WithTimeout(ctx, 8*time.Second)
+	peer, err := resolvePeerUDPAddr(lookupCtx, nil, cfg.PeerAddr)
+	lookupCancel()
 	if err != nil {
 		emitHashProbeProgress(cfg, started, "dns", "error", "Адрес сервера не разрешён", 0)
 		return hashProbeErrorResult(HashProbeErrorNetwork, "server address could not be resolved", started)
@@ -221,6 +223,9 @@ func classifyHashProbeCredentialError(err error, started time.Time) HashProbeRes
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return classifyHashProbeContextError(err, started)
+	}
+	if isDNSFailure(err) {
+		return hashProbeErrorResult(HashProbeErrorNetwork, "DNS/network unavailable", started)
 	}
 	lower := strings.ToLower(err.Error())
 	if strings.Contains(lower, "captcha") || strings.Contains(lower, "vk api") || strings.Contains(lower, "vkcalls") {

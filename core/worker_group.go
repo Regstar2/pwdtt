@@ -76,22 +76,31 @@ func WorkerGroup(
 	}
 
 	hash := tp.Hashes[hashIndex%len(tp.Hashes)]
-	shortHash := hash
-	if len(shortHash) > 8 {
-		shortHash = shortHash[:8]
-	}
 	if groupID == 1 {
 		emitConnectionProgress("vk", "running", "Получение VK-кредов")
 	}
-	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
+	log.Printf("[ГРУППА #%d] Запрос VK-кредов", groupID)
 
 	credStreamID := groupID * 100
+	credentialsStarted := time.Now()
 	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
 	var creds *Credentials
 	if err == nil {
 		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
 	} else {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return
+		}
+		if isDNSFailure(err) {
+			if groupID == 1 {
+				emitConnectionProgress("dns", "error", "DNS/сеть недоступны при обращении к VK")
+				emitConnectionProgress("vk", "error", "VK-креды недоступны из-за ошибки DNS/сети")
+				if active := getActiveCore(); active != nil {
+					active.emitDiagnostic("DEBUG", "DNS", "vk_credentials", dnsFailureKind(err),
+						"source=system rcode=unavailable", 0, time.Since(credentialsStarted))
+				}
+			}
+			log.Printf("[ГРУППА #%d] DNS/network unavailable (source=system, stage=vk_credentials, result=%s)", groupID, dnsFailureKind(err))
 			return
 		}
 		if groupID == 1 {

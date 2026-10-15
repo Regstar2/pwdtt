@@ -161,7 +161,7 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 
 		httpResp, err := client.Do(req)
 		if err != nil {
-			return nil, newVKCallsFailure(step, vkCallsFailureNetwork, fmt.Errorf("request failed: %w", err))
+			return nil, newVKCallsFailure(step, vkCallsFailureNetwork, fmt.Errorf("request failed: %w", sanitizeDNSFailure(err)))
 		}
 		defer func() {
 			if closeErr := httpResp.Body.Close(); closeErr != nil {

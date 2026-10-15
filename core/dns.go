@@ -2,53 +2,103 @@ package core
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
+	"strconv"
 	"strings"
-	"time"
 )
 
-func setupGlobalResolver() {
-	dialer := &net.Dialer{
-		Timeout:   3 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}
-	yandexDNSServers := []string{"77.88.8.8:53", "77.88.8.1:53"}
-
-	net.DefaultResolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			var lastErr error
-			for _, dns := range yandexDNSServers {
-				conn, err := dialer.DialContext(ctx, "udp", dns)
-				if err == nil {
-					return conn, nil
-				}
-				lastErr = err
-				conn, err = dialer.DialContext(ctx, "tcp", dns)
-				if err == nil {
-					return conn, nil
-				}
-				lastErr = err
-			}
-
-			address = strings.TrimSpace(address)
-			if address != "" && !isYandexDNSAddress(address) {
-				conn, err := dialer.DialContext(ctx, network, address)
-				if err == nil {
-					return conn, nil
-				}
-				lastErr = err
-			}
-			return nil, lastErr
-		},
-	}
+type dnsUnavailableError struct {
+	kind string
 }
 
-func isYandexDNSAddress(address string) bool {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		host = address
+func (e *dnsUnavailableError) Error() string {
+	return "DNS/network unavailable (" + e.kind + ")"
+}
+
+func dnsFailureKind(err error) string {
+	if err == nil {
+		return "success"
 	}
-	host = strings.Trim(host, "[]")
-	return host == "77.88.8.8" || host == "77.88.8.1"
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var unavailable *dnsUnavailableError
+	if errors.As(err, &unavailable) {
+		return unavailable.kind
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if dnsErr.IsNotFound {
+			return "not_found"
+		}
+		if dnsErr.IsTimeout {
+			return "timeout"
+		}
+		return "network"
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out") {
+		return "timeout"
+	}
+	return "network"
+}
+
+func isDNSFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	var unavailable *dnsUnavailableError
+	var dnsErr *net.DNSError
+	if errors.As(err, &unavailable) || errors.As(err, &dnsErr) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "no such host") ||
+		strings.Contains(lower, "server misbehaving") ||
+		(strings.Contains(lower, "lookup ") &&
+			(strings.Contains(lower, "timeout") ||
+				strings.Contains(lower, "temporary") ||
+				strings.Contains(lower, "network") ||
+				strings.Contains(lower, "refused")))
+}
+
+// sanitizeDNSFailure keeps DNS errors free of request URLs and hostnames.
+func sanitizeDNSFailure(err error) error {
+	if isDNSFailure(err) {
+		return &dnsUnavailableError{kind: dnsFailureKind(err)}
+	}
+	return err
+}
+
+// resolvePeerUDPAddr uses the OS configuration without modifying net.DefaultResolver.
+// The optional resolver parameter exists for isolated tests.
+func resolvePeerUDPAddr(ctx context.Context, resolver *net.Resolver, address string) (*net.UDPAddr, error) {
+	address = strings.TrimSpace(address)
+	host, portString, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil || port < 0 || port > 65535 {
+		return nil, fmt.Errorf("invalid UDP port")
+	}
+	if host == "" || net.ParseIP(host) != nil || strings.Contains(host, "%") {
+		return net.ResolveUDPAddr("udp", address)
+	}
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	addresses, err := resolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	if len(addresses) == 0 {
+		return nil, &net.DNSError{Err: "no addresses returned", Name: host, IsNotFound: true}
+	}
+	return &net.UDPAddr{IP: addresses[0].IP, Port: port, Zone: addresses[0].Zone}, nil
 }
