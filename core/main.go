@@ -156,7 +156,7 @@ func (c *Core) start() error {
 		SetActiveFingerprint(c.cfg.Fingerprint)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), captchaCoreContextKey{}, c))
 	c.cancel = cancel
 
 	// Валидация
