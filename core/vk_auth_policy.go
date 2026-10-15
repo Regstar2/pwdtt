@@ -122,6 +122,13 @@ func classifyVKAuthError(err error) vkAuthErrorKind {
 	if errors.As(err, &callsErr) {
 		return vkAuthAPIErrorCodeKind(callsErr.Code)
 	}
+	var okErr *vkCallsOKAPIError
+	if errors.As(err, &okErr) {
+		if okErr.Code == 29 {
+			return vkAuthRateLimit
+		}
+		return vkAuthVKAPI
+	}
 	var captchaErr *VkCaptchaError
 	if errors.As(err, &captchaErr) || errors.Is(err, errVKCaptchaWait) {
 		return vkAuthCaptcha
