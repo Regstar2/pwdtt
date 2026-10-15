@@ -190,6 +190,7 @@ func NewTestStore(t interface{ TempDir() string; Setenv(string, string) }) *Stor
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("APPDATA", filepath.Join(dir, ".config"))
 	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "servers"), 0o755)
 	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "logs"), 0o755)
 	return NewStore()
