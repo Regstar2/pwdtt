@@ -33,6 +33,9 @@ jobs:
       - name: Test root module
         run: go test -count=1 ./...
 
+      - name: Race-test session log exports
+        run: go test -race -count=1 -run '^TestIssue44' ./backend
+
       - name: Verify WebView2 override
         run: test "$(go list -m -f '{{.Version}}' github.com/wailsapp/go-webview2)" = "v1.0.23"
 
