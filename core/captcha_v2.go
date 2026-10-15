@@ -709,16 +709,16 @@ func (e *VkCaptchaError) Error() string {
 		return fmt.Sprintf("VK API error %d", e.ErrorCode)
 	}
 	if e.RedirectURI != "" {
-		return fmt.Sprintf("VK captcha required: redirect_uri, sid=%q", e.CaptchaSid)
+		return "VK captcha required: redirect_uri"
 	}
 	if e.CaptchaImg != "" {
-		return fmt.Sprintf("VK captcha required: captcha_img, sid=%q", e.CaptchaSid)
+		return "VK captcha required: captcha_img"
 	}
 	if e.CaptchaSid != "" {
-		return fmt.Sprintf("VK captcha required: sid=%q", e.CaptchaSid)
+		return "VK captcha required: sid_present"
 	}
 	if e.ErrorMsg != "" {
-		return fmt.Sprintf("VK captcha required: %s", e.ErrorMsg)
+		return "VK captcha required: VK error"
 	}
 	return "VK captcha required"
 }
