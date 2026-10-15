@@ -25,16 +25,22 @@ type diagnosticEvent struct {
 }
 
 var (
-	sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name)"?\s*[:=]\s*"?)([^"\s,}\]&]+)`)
-	quotedDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name)"?\s*[:=]\s*)"[^"]*"`)
+	sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|hash_id|anonymname|anonymous_name|anonymousname|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name|server|link)"?\s*[:=]\s*"?)([^"\s,}\]&]+)`)
+	quotedDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|hash_id|anonymname|anonymous_name|anonymousname|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name|server|link)"?\s*[:=]\s*)"[^"]*"`)
 	diagnosticURLPattern = regexp.MustCompile(`(?i)(?:\b(?:https?|wss?|vkcalls?|wdtt|tg)://|\bvk\.com/call/(?:join/)?)[^\s"'<>\x60]+`)
+	diagnosticEncodedURLPattern = regexp.MustCompile(`(?i)(?:https?|wss?|vkcalls?|wdtt|tg)%3a%2f%2f[^\\s"'<>\\x60]+`)
+	diagnosticDoubleEncodedURLPattern = regexp.MustCompile(`(?i)(?:https?|wss?)%253a%252f%252f[^\\s"'<>\\x60]+`)
+	diagnosticEncodedFieldPattern = regexp.MustCompile(`(?i)((?:%22)?(?:anonymname|anonymous_name|user_id|device_id|access_token|password|hash|hash_id|call_hash|session_token|username|profile_name|link)(?:%22)?%(?:3a|3d))[^&\\s"'<>]+`)
 	diagnosticQueryPattern = regexp.MustCompile(`(?i)([?&][a-z_][a-z0-9_.-]*=)[^&\s"'<>]+`)
 	windowsUserPathPattern = regexp.MustCompile(`(?i)(?:[a-z]:\\|\\\\)[^"'<>,;|\r\n]+`)
 	unixUserPathPattern = regexp.MustCompile(`(?:/home/|/Users/|/root/|/tmp/|/var/folders/)[^"'<>,;|\s]+`)
 )
 
 func sanitizeDiagnosticText(message string) string {
+	message = diagnosticEncodedURLPattern.ReplaceAllString(message, "[link redacted]")
+	message = diagnosticDoubleEncodedURLPattern.ReplaceAllString(message, "[link redacted]")
 	message = diagnosticURLPattern.ReplaceAllString(message, "[link redacted]")
+	message = diagnosticEncodedFieldPattern.ReplaceAllString(message, "${1}[redacted]")
 	message = windowsUserPathPattern.ReplaceAllString(message, "[path redacted]")
 	message = unixUserPathPattern.ReplaceAllString(message, "[path redacted]")
 	message = quotedDiagnosticPattern.ReplaceAllString(message, `${1}"[redacted]"`)
@@ -81,5 +87,12 @@ func (a *App) emitDiagnostic(event diagnosticEvent) {
 	if strings.TrimSpace(event.Level) == "" {
 		event.Level = "DEBUG"
 	}
+	event.Server = "[redacted]" // user-defined profile names are not diagnostic identifiers
+	event.HashID = "[redacted]"
+	event.Message = sanitizeDiagnosticText(event.Message)
+	event.OperationID = sanitizeDiagnosticText(event.OperationID)
+	event.Stage = sanitizeDiagnosticText(event.Stage)
+	event.Action = sanitizeDiagnosticText(event.Action)
+	event.Result = sanitizeDiagnosticText(event.Result)
 	a.onBridgeEvent("diagnostic_event", event)
 }
