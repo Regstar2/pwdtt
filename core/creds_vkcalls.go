@@ -228,7 +228,7 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 	}
 	if apiErr := vkCallsAPIError(resp2); apiErr != nil {
 		if captchaErr, ok := apiErr.(*VkCaptchaError); ok {
-			log.Printf("[STREAM %d] [VKCalls] step2 captcha gate appeared (sid=%q, redirect_uri=%t)", streamID, captchaErr.CaptchaSid, captchaErr.RedirectURI != "")
+			log.Printf("[STREAM %d] [VKCalls] step2 captcha gate appeared (redirect_uri=%t)", streamID, captchaErr.RedirectURI != "")
 		} else if callErr, ok := asCallUnavailableError(apiErr); ok {
 			log.Printf("[STREAM %d] [VKCalls] step2 non-retryable call error: %v", streamID, callErr)
 		}
@@ -257,7 +257,7 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 	}
 	if apiErr := vkCallsAPIError(resp3); apiErr != nil {
 		if captchaErr, ok := apiErr.(*VkCaptchaError); ok {
-			log.Printf("[STREAM %d] [VKCalls] step3 captcha gate appeared (sid=%q, redirect_uri=%t)", streamID, captchaErr.CaptchaSid, captchaErr.RedirectURI != "")
+			log.Printf("[STREAM %d] [VKCalls] step3 captcha gate appeared (redirect_uri=%t)", streamID, captchaErr.RedirectURI != "")
 		} else if callErr, ok := asCallUnavailableError(apiErr); ok {
 			log.Printf("[STREAM %d] [VKCalls] step3 non-retryable call error: %v", streamID, callErr)
 		}
@@ -389,9 +389,7 @@ func vkCallsAPIError(resp map[string]interface{}) error {
 		return callErr
 	}
 	if int(code) == 14 {
-		if errJSON, err := json.Marshal(errObj); err == nil {
-			log.Printf("[VKCalls] captcha error response: %s", truncateVKCallsLog(string(errJSON), 300))
-		}
+		log.Printf("[VKCalls] captcha response error_code=14 redirect_uri=%t", errObj["redirect_uri"] != nil)
 		return parseVkCaptchaError(errObj)
 	}
 	return &vkCallsVKAPIError{Code: int(code), Message: msg}
