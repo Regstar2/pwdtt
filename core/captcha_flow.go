@@ -12,6 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// captchaCoreContextKey binds a challenge to the initiating connection.
+// An old worker must never attach a CAPTCHA request to a newer active core.
+type captchaCoreContextKey struct{}
+
+func captchaCoreFromContext(ctx context.Context) *Core {
+	if c, ok := ctx.Value(captchaCoreContextKey{}).(*Core); ok {
+		return c
+	}
+	return getActiveCore()
+}
+
 // captchaCoordinator owns exactly one active, correlated browser challenge.
 // No token or challenge URL is ever placed in a diagnostic/event payload.
 type captchaCoordinator struct {
