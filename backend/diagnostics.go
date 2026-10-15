@@ -25,7 +25,7 @@ type diagnosticEvent struct {
 }
 
 var (
-	sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|hash_id|hashid|deviceid|userid|sessionid|anonym_name|anonymname|anonymous_name|anonymousname|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name|profilename|server|link)"?\s*[:=]\s*"?)([^"\s,}\]&]+)`)
+	sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|hash_id|hashid|deviceid|userid|sessionid|anonym_name|anonymname|anonymous_name|anonymousname|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name|profilename|server|link)"?\s*[:=]\s*"?)([^"\s,}\]&\[\]]+)`)
 	quotedDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|hash_id|hashid|deviceid|userid|sessionid|anonym_name|anonymname|anonymous_name|anonymousname|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name|profilename|server|link)"?\s*[:=]\s*)"[^"]*"`)
 	diagnosticURLPattern = regexp.MustCompile(`(?i)(?:\b(?:https?|wss?|vkcalls?|wdtt|tg)://|\bvk\.com/call/(?:join/)?)[^\s"'<>\x60]+`)
 	diagnosticEncodedURLPattern = regexp.MustCompile(`(?i)(?:https?|wss?|vkcalls?|wdtt|tg)%3a%2f%2f[^\s"'<>\x60]+`)
@@ -43,8 +43,8 @@ func sanitizeDiagnosticText(message string) string {
 	message = diagnosticEncodedFieldPattern.ReplaceAllString(message, "${1}[redacted]")
 	message = windowsUserPathPattern.ReplaceAllString(message, "[path redacted]")
 	message = unixUserPathPattern.ReplaceAllString(message, "[path redacted]")
-	message = quotedDiagnosticPattern.ReplaceAllString(message, `${1}"[redacted]"`)
 	message = sensitiveDiagnosticPattern.ReplaceAllString(message, "${1}[redacted]")
+	message = quotedDiagnosticPattern.ReplaceAllString(message, `${1}"[redacted]"`)
 	return diagnosticQueryPattern.ReplaceAllString(message, "${1}[redacted]")
 }
 
