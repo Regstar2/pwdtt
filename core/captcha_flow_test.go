@@ -147,3 +147,28 @@ func TestCaptchaCoordinatorCancelAndTimeout(t *testing.T) {
 	}
 	b.finish(timeout)
 }
+
+func TestCaptchaCoordinatorCancelledParentAndCoreIsolation(t *testing.T) {
+	b := newCaptchaCoordinator()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := b.begin(ctx, "https://id.vk.com", "manual", time.Second); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled parent accepted: %v", err)
+	}
+	// An already canceled request must not retain the single challenge gate.
+	r, err := b.begin(context.Background(), "https://id.vk.com", "manual", time.Second)
+	if err != nil {
+		t.Fatalf("challenge gate was retained: %v", err)
+	}
+	b.finish(r)
+
+	oldCore := New(Config{})
+	newCore := New(Config{})
+	tagged := context.WithValue(context.Background(), captchaCoreContextKey{}, oldCore)
+	if got := captchaCoreFromContext(tagged); got != oldCore {
+		t.Fatalf("challenge was assigned to the wrong core: %p (want %p)", got, oldCore)
+	}
+	if oldCore.captcha == newCore.captcha {
+		t.Fatal("separate core connections must have separate CAPTCHA coordinators")
+	}
+}
