@@ -19,8 +19,9 @@ import type { Server, TunnelState, VKHashMode } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles } from '../../wailsjs/go/backend/App';
 import ConnectionHero from '../components/connect/ConnectionHero';
 import ConnectionProgress from '../components/connect/ConnectionProgress';
-import CaptchaPrompt, { parseCaptchaChallenge } from '../components/connect/CaptchaPrompt';
-import type { CaptchaChallenge } from '../components/connect/CaptchaPrompt';
+import CaptchaPrompt from '../components/connect/CaptchaPrompt';
+import { parseCaptchaChallenge } from '../lib/utils/captchaChallenge';
+import type { CaptchaChallenge } from '../lib/utils/captchaChallenge';
 import ConnectionStats from '../components/connect/ConnectionStats';
 import ServerSelector from '../components/connect/ServerSelector';
 import { ServerIcon } from '../components/connect/ServerIcon';
@@ -93,7 +94,10 @@ export default function Connect() {
   const connectingRef = useRef(false);
   const reconnectAtRef = useRef(0);
 
-  useEffect(() => tunnelStore.subscribe(setTunnelState), []);
+  useEffect(() => tunnelStore.subscribe(next => {
+    setTunnelState(next);
+    if (next === 'idle') setCaptcha(null);
+  }), []);
   useEffect(() => {
     const offRequired = EventsOn('captcha_required', (payload: unknown) => {
       const parsed = parseCaptchaChallenge(payload);
@@ -104,9 +108,6 @@ export default function Connect() {
     });
     return () => { offRequired(); offClosed(); };
   }, []);
-  useEffect(() => {
-    if (tunnelState === 'idle') setCaptcha(null);
-  }, [tunnelState]);
   useEffect(() => connectionStore.subscribe(setConnection), []);
   useEffect(() => themeStore.subscribe(setTheme), []);
 
