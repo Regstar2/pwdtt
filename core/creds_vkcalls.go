@@ -11,6 +11,7 @@ import (
 	neturl "net/url"
 	"os"
 	"strings"
+	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
 	tlsclient "github.com/bogdanfinn/tls-client"
@@ -128,6 +129,9 @@ func (e *vkCallsOKAPIError) Error() string {
 }
 
 func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (string, string, []string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", nil, err
+	}
 	if os.Getenv("VK_SKIP_VKCALLS") == "1" {
 		return "", "", nil, newVKCallsFailure("preflight", vkCallsFailureSkipped, fmt.Errorf("disabled by VK_SKIP_VKCALLS=1"))
 	}
@@ -149,7 +153,17 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 
 	log.Printf("[STREAM %d] [VKCalls] Identity ready | TLS=Chrome_146 | UA: %s", streamID, profile.UserAgent)
 
-	doRequest := func(step string, url string) (map[string]interface{}, error) {
+	doRequest := func(step string, url string) (response map[string]interface{}, failure error) {
+		parsed, parseErr := neturl.Parse(url)
+		if parseErr != nil {
+			return nil, newVKCallsFailure(step, vkCallsFailureSetup, parseErr)
+		}
+		host := parsed.Hostname()
+		started := time.Now()
+		defer func() { traceVKAuthAttempt(streamID, "vkcalls."+step, host, 1, started, failure) }()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		req, err := fhttp.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(nil))
 		if err != nil {
 			return nil, newVKCallsFailure(step, vkCallsFailureSetup, fmt.Errorf("create request: %w", err))
@@ -161,7 +175,7 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 
 		httpResp, err := client.Do(req)
 		if err != nil {
-			return nil, newVKCallsFailure(step, vkCallsFailureNetwork, fmt.Errorf("request failed: %w", sanitizeDNSFailure(err)))
+			return nil, newVKCallsFailure(step, vkCallsFailureNetwork, newVKAuthTransportError(ctx, step, host, err))
 		}
 		defer func() {
 			if closeErr := httpResp.Body.Close(); closeErr != nil {
@@ -169,16 +183,18 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 			}
 		}()
 
+		if httpResp.StatusCode >= 400 {
+			return nil, newVKCallsFailure(step, vkCallsFailureVKAPI, &vkAuthHTTPError{StatusCode: httpResp.StatusCode})
+		}
 		body, err := io.ReadAll(httpResp.Body)
 		if err != nil {
-			return nil, newVKCallsFailure(step, vkCallsFailureNetwork, fmt.Errorf("read response: %w", err))
+			return nil, newVKCallsFailure(step, vkCallsFailureNetwork, newVKAuthTransportError(ctx, step, host, err))
 		}
 
-		var resp map[string]interface{}
-		if err := json.Unmarshal(body, &resp); err != nil {
-			return nil, newVKCallsFailure(step, vkCallsFailureDecode, fmt.Errorf("unmarshal JSON: %w, body: %s", err, truncateVKCallsLog(string(body), 200)))
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, newVKCallsFailure(step, vkCallsFailureDecode, fmt.Errorf("unmarshal JSON: %w", err))
 		}
-		return resp, nil
+		return response, nil
 	}
 
 	step1 := "step1 auth.getAnonymToken"
@@ -190,6 +206,9 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 	resp1, err := doRequest(step1, step1URL)
 	if err != nil {
 		return "", "", nil, err
+	}
+	if apiErr := vkCallsAPIError(resp1); apiErr != nil {
+		return "", "", nil, newVKCallsFailure(step1, vkCallsAPIErrorKind(apiErr), apiErr)
 	}
 	anonymToken, err := extractVKCallsStr(resp1, "response", "token")
 	if err != nil {
@@ -260,6 +279,9 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 	resp4, err := doRequest(step4, step4URL)
 	if err != nil {
 		return "", "", nil, err
+	}
+	if okErr := vkCallsOKError(resp4); okErr != nil {
+		return "", "", nil, newVKCallsFailure(step4, vkCallsFailureOKCDN, okErr)
 	}
 	sessionKey, err := extractVKCallsStr(resp4, "session_key")
 	if err != nil {
