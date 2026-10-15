@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	mathrand "math/rand"
 	"regexp"
 	"strconv"
@@ -34,7 +35,7 @@ const (
 var (
 	reCaptchaV2PowInput   = regexp.MustCompile(`const\s+powInput\s*=\s*"([^"]+)"`)
 	reCaptchaV2Difficulty = regexp.MustCompile(`const\s+difficulty\s*=\s*(\d+)`)
-	reCaptchaV2WindowInit = regexp.MustCompile(`(?s)window\.init\s*=\s*(\{.*?})\s*;`)
+	reCaptchaV2WindowInit = regexp.MustCompile(`window\.init\s*=\s*`)
 	reCaptchaV2ScriptSrc  = regexp.MustCompile(`src="(https://[^"]+not_robot_captcha[^"]+)"`)
 	reCaptchaV2DebugInfo  = regexp.MustCompile(`debug_info:(?:[^"]*\|\|)?"([a-fA-F0-9]{64})"`)
 	reCaptchaV2Version    = regexp.MustCompile(`vkid/([0-9.]*)/not_robot_captcha\.js`)
@@ -78,6 +79,42 @@ type captchaV2InitData struct {
 type captchaV2InitSetting struct {
 	Type     string `json:"type"`
 	Settings string `json:"settings"`
+}
+
+// captchaV2Failure intentionally contains only bounded metadata. In particular,
+// neither raw HTML, redirect URLs, cookies nor CAPTCHA tokens are printable.
+type captchaV2Failure struct {
+	Phase       string
+	Kind        string
+	Reason      string
+	Status      int
+	ContentType string
+	Redirected  bool
+	Bytes       int
+	DurationMs  int64
+}
+
+func (e *captchaV2Failure) Error() string {
+	return fmt.Sprintf("captcha v2 phase=%s category=%s reason=%s http_status=%d content_type=%s redirected=%t bytes=%d duration_ms=%d",
+		e.Phase, e.Kind, e.Reason, e.Status, e.ContentType, e.Redirected, e.Bytes, e.DurationMs)
+}
+
+func captchaV2Terminal(err error) bool {
+	var failure *captchaV2Failure
+	return errors.As(err, &failure) && (failure.Kind == "parse" || failure.Kind == "unsupported_page" || failure.Kind == "http_status")
+}
+
+func captchaV2MediaType(value string) string {
+	value, _, err := mime.ParseMediaType(value)
+	if err != nil {
+		return "other"
+	}
+	switch value {
+	case "text/html", "application/xhtml+xml", "application/json", "text/javascript", "application/javascript":
+		return value
+	default:
+		return "other"
+	}
 }
 
 type captchaV2Page struct {
@@ -136,31 +173,39 @@ func solveVkCaptchaV2Attempts(
 
 	s := &captchaV2Session{ctx: ctx, client: client, profile: profile, savedProfile: savedProfile}
 
+	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		token, solveErr := s.solveOnce(captchaErr)
 		if solveErr == nil {
 			return token, nil
 		}
-		log.Printf("[КАПЧА] v2 попытка %d ошибка: %v", attempt, solveErr)
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		lastErr = solveErr
+		log.Printf("[КАПЧА] v2 попытка %d/%d: %v", attempt, maxAttempts, solveErr)
+		if captchaV2Terminal(solveErr) {
+			return "", solveErr
+		}
+		if attempt == maxAttempts {
+			break
+		}
+		delay := time.Duration(attempt)*500*time.Millisecond + time.Duration(mathrand.Intn(700))*time.Millisecond
 		if errors.Is(solveErr, errCaptchaV2RateLimit) {
-			log.Printf("[КАПЧА] Превышен лимит сессии капчи. Ожидаю 5 секунд...")
-			time.Sleep(5 * time.Second)
-			continue
+			delay = 5 * time.Second
 		}
-
-		backoffSteps := attempt
-		if backoffSteps > 10 {
-			backoffSteps = 10
-		}
-		timer := time.NewTimer(time.Duration(backoffSteps) * 500 * time.Millisecond)
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return "", ctx.Err()
-		case <-time.After(time.Duration(1500+mathrand.Intn(1200)) * time.Millisecond):
+		case <-timer.C:
 		}
 	}
-	return "", fmt.Errorf("v2 captcha attempts exhausted (%d)", maxAttempts)
+	return "", fmt.Errorf("captcha v2 attempts exhausted: %w", lastErr)
 }
 
 func (s *captchaV2Session) solveOnce(captchaErr *VkCaptchaError) (string, error) {
@@ -171,10 +216,11 @@ func (s *captchaV2Session) solveOnce(captchaErr *VkCaptchaError) (string, error)
 
 	page, err := parseCaptchaV2Page(html)
 	if err != nil {
+		log.Printf("[КАПЧА] v2 phase=parse_page result=error: %v", err)
 		return "", err
 	}
 	if page.PowInput == "" {
-		return "", errors.New("failed to find PoW settings")
+		return "", &captchaV2Failure{Phase: "parse_page", Kind: "unsupported_page", Reason: "pow_missing", Bytes: len(html)}
 	}
 
 	sliderSettings := ""
@@ -274,7 +320,7 @@ func captchaV2BrowserFP() (string, error) {
 }
 
 func (s *captchaV2Session) fetchCaptchaHTML(redirectURI string) (string, error) {
-	body, err := s.doRaw(fhttp.MethodGet, redirectURI, nil, map[string]string{
+	body, err := s.doRaw("fetch_page", fhttp.MethodGet, redirectURI, nil, map[string]string{
 		"Accept":         "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 		"Sec-Fetch-Dest": "document",
 		"Sec-Fetch-Mode": "navigate",
@@ -293,7 +339,7 @@ func (s *captchaV2Session) fetchDebugInfo(scriptURL string) (string, error) {
 		}
 		captchaV2DebugCache.Delete(scriptURL)
 	}
-	body, err := s.doRaw(fhttp.MethodGet, scriptURL, nil, map[string]string{
+	body, err := s.doRaw("fetch_script", fhttp.MethodGet, scriptURL, nil, map[string]string{
 		"Accept":  "text/javascript,*/*",
 		"Referer": "https://id.vk.com/",
 	})
@@ -306,26 +352,31 @@ func (s *captchaV2Session) fetchDebugInfo(scriptURL string) (string, error) {
 	}
 	v := string(m[1])
 	captchaV2DebugCache.Store(scriptURL, v)
-	log.Printf("[КАПЧА] v2 debug_info fetched url=%s", scriptURL)
+	log.Printf("[КАПЧА] v2 debug_info fetched")
 	return v, nil
 }
 
 func parseCaptchaV2Page(html string) (*captchaV2Page, error) {
 	page := &captchaV2Page{}
-
-	match := reCaptchaV2WindowInit.FindStringSubmatch(html)
-	if len(match) < 2 {
-		return nil, errors.New("captcha init json not found")
+	marker := reCaptchaV2WindowInit.FindStringIndex(html)
+	if marker == nil {
+		return nil, &captchaV2Failure{Phase: "parse_page", Kind: "unsupported_page", Reason: "init_missing", Bytes: len(html)}
 	}
+	// Use the JSON decoder, not a regex stopping at the first closing brace:
+	// known VK init JSON may contain nested objects.
+	decoder := json.NewDecoder(strings.NewReader(html[marker[1]:]))
 	var init captchaV2Init
-	if err := json.Unmarshal([]byte(match[1]), &init); err != nil {
-		return nil, fmt.Errorf("captcha init json parse: %w", err)
+	if err := decoder.Decode(&init); err != nil {
+		return nil, &captchaV2Failure{Phase: "parse_page", Kind: "parse", Reason: "init_invalid_json", Bytes: len(html)}
+	}
+	if init.Data.ShowCaptchaType == "" {
+		return nil, &captchaV2Failure{Phase: "parse_page", Kind: "unsupported_page", Reason: "init_schema", Bytes: len(html)}
 	}
 	page.Init = &init
 
-	match = reCaptchaV2ScriptSrc.FindStringSubmatch(html)
+	match := reCaptchaV2ScriptSrc.FindStringSubmatch(html)
 	if len(match) < 2 {
-		return nil, errors.New("captcha script url not found")
+		return nil, &captchaV2Failure{Phase: "parse_page", Kind: "unsupported_page", Reason: "script_missing", Bytes: len(html)}
 	}
 	page.ScriptURL = match[1]
 
@@ -338,11 +389,11 @@ func parseCaptchaV2Page(html string) (*captchaV2Page, error) {
 
 	match = reCaptchaV2Difficulty.FindStringSubmatch(html)
 	if len(match) < 2 {
-		return nil, errors.New("captcha difficulty const not found")
+		return nil, &captchaV2Failure{Phase: "parse_page", Kind: "unsupported_page", Reason: "difficulty_missing", Bytes: len(html)}
 	}
 	difficulty, err := strconv.Atoi(match[1])
 	if err != nil || difficulty <= 0 {
-		return nil, fmt.Errorf("invalid captcha difficulty %q", match[1])
+		return nil, &captchaV2Failure{Phase: "parse_page", Kind: "parse", Reason: "difficulty_invalid", Bytes: len(html)}
 	}
 	page.PowDifficulty = difficulty
 	return page, nil
@@ -350,7 +401,7 @@ func parseCaptchaV2Page(html string) (*captchaV2Page, error) {
 
 func (s *captchaV2Session) captchaRequest(method string, form [][2]string) (map[string]any, error) {
 	endpoint := "https://api.vk.ru/method/" + method + "?v=" + captchaV2APIVersion
-	body, err := s.doRaw(fhttp.MethodPost, endpoint, form, map[string]string{
+	body, err := s.doRaw("api_request", fhttp.MethodPost, endpoint, form, map[string]string{
 		"Origin":   "https://id.vk.com",
 		"Referer":  "https://id.vk.com/",
 		"Priority": "u=1, i",
@@ -409,7 +460,7 @@ func (s *captchaV2Session) performCaptchaCheck(
 func parseCaptchaV2Check(raw map[string]any) (*captchaV2Check, error) {
 	resp, ok := raw["response"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid captcha check response: %v", raw)
+		return nil, errors.New("invalid captcha check response")
 	}
 	out := &captchaV2Check{
 		Status:       captchaV2StringifyAny(resp["status"]),
@@ -417,7 +468,7 @@ func parseCaptchaV2Check(raw map[string]any) (*captchaV2Check, error) {
 		ShowType:     captchaV2StringifyAny(resp["show_captcha_type"]),
 	}
 	if out.Status == "" {
-		return nil, fmt.Errorf("captcha check status missing: %v", raw)
+		return nil, errors.New("captcha check status missing")
 	}
 	return out, nil
 }
@@ -495,18 +546,20 @@ func solveCaptchaPoWV2(ctx context.Context, input string, difficulty int) string
 }
 
 func (s *captchaV2Session) doRaw(
+	phase string,
 	method string,
 	endpoint string,
 	form [][2]string,
 	extraHeaders map[string]string,
 ) ([]byte, error) {
+	started := time.Now()
 	var body []byte
 	if form != nil {
 		body = []byte(captchaV2EncodeForm(form))
 	}
 	req, err := fhttp.NewRequestWithContext(s.ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, &captchaV2Failure{Phase: phase, Kind: "network", Reason: "invalid_request"}
 	}
 	applyBrowserProfileFhttp(req, s.profile)
 	req.Header.Set("Accept", "*/*")
@@ -526,14 +579,47 @@ func (s *captchaV2Session) doRaw(
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, err
+		if ctxErr := s.ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		failure := &captchaV2Failure{Phase: phase, Kind: "network", Reason: "request_failed", DurationMs: time.Since(started).Milliseconds()}
+		log.Printf("[КАПЧА] v2 %v", failure)
+		return nil, failure
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Printf("[КАПЧА] v2 close body: %s", closeErr)
+			log.Printf("[КАПЧА] v2 response body close failed phase=%s", phase)
 		}
 	}()
-	return io.ReadAll(resp.Body)
+
+	const maxCaptchaResponseBytes = 2 << 20
+	buf, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCaptchaResponseBytes+1))
+	redirected := resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.String() != req.URL.String()
+	failure := &captchaV2Failure{
+		Phase: phase, Status: resp.StatusCode,
+		ContentType: captchaV2MediaType(resp.Header.Get("Content-Type")),
+		Redirected: redirected, Bytes: len(buf),
+		DurationMs: time.Since(started).Milliseconds(),
+	}
+	switch {
+	case readErr != nil:
+		if ctxErr := s.ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		failure.Kind, failure.Reason = "network", "read_failed"
+	case len(buf) > maxCaptchaResponseBytes:
+		failure.Kind, failure.Reason = "unsupported_page", "body_too_large"
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		failure.Kind, failure.Reason = "http_status", "http_non_success"
+	case phase == "fetch_page" && failure.ContentType != "text/html" && failure.ContentType != "application/xhtml+xml":
+		failure.Kind, failure.Reason = "unsupported_page", "not_html"
+	default:
+		log.Printf("[КАПЧА] v2 phase=%s result=ok http_status=%d content_type=%s redirected=%t bytes=%d duration_ms=%d",
+			phase, failure.Status, failure.ContentType, failure.Redirected, failure.Bytes, failure.DurationMs)
+		return buf, nil
+	}
+	log.Printf("[КАПЧА] v2 %v", failure)
+	return nil, failure
 }
 
 func captchaV2EncodeForm(values [][2]string) string {
