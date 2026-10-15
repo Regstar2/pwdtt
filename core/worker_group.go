@@ -91,22 +91,22 @@ func WorkerGroup(
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			return
 		}
-		if isDNSFailure(err) {
-			if groupID == 1 {
-				emitConnectionProgress("dns", "error", "DNS/сеть недоступны при обращении к VK")
-				emitConnectionProgress("vk", "error", "VK-креды недоступны из-за ошибки DNS/сети")
-				if active := getActiveCore(); active != nil {
-					active.emitDiagnostic("DEBUG", "DNS", "vk_credentials", dnsFailureKind(err),
-						"source=system rcode=unavailable", 0, time.Since(credentialsStarted))
-				}
-			}
-			log.Printf("[ГРУППА #%d] DNS/network unavailable (source=system, stage=vk_credentials, result=%s)", groupID, dnsFailureKind(err))
-			return
-		}
+		kind := classifyVKAuthError(err)
+		message := vkAuthUIFailureMessage(err)
+		log.Printf("[ГРУППА #%d] VK credentials failed: error_kind=%s duration_ms=%d",
+			groupID, kind, time.Since(credentialsStarted).Milliseconds())
 		if groupID == 1 {
-			emitConnectionProgress("vk", "error", "Не удалось получить VK-креды")
+			if kind == vkAuthDNSTimeout || kind == vkAuthDNSLookup {
+				emitConnectionProgress("dns", "error", message)
+			}
+			emitConnectionProgress("vk", "error", message)
+			if active := getActiveCore(); active != nil {
+				active.emitError("VK_CREDENTIALS", message, true)
+				// Release the other groups blocked on waitCreds and return the UI
+				// to idle; without cancellation the core can remain connecting.
+				active.Stop()
+			}
 		}
-		log.Printf("[ГРУППА #%d] Ошибка кредов: %v", groupID, err)
 		return
 	}
 
