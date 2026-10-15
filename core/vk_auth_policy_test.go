@@ -155,6 +155,38 @@ func TestVKAuthCancellationStopsAttemptsAndWaits(t *testing.T) {
 	}
 }
 
+func TestVKAuthCancelWhileWaitingForCacheRefresh(t *testing.T) {
+	cache := getStreamCache(987654321)
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, err := getVkCredsCached(ctx, "test-hash", 987654321)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("wanted canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cache mutex wait ignored cancellation")
+	}
+}
+
+func TestVKAuthUnspecifiedTransportFailureNeverRotates(t *testing.T) {
+	transport := newVKAuthTransportError(context.Background(), "step1", "api.vk.me", errors.New("untyped adapter error"))
+	if classifyVKAuthError(transport) != vkAuthNetwork {
+		t.Fatalf("untyped request transport error misclassified: %v", transport)
+	}
+	if vkAuthShouldUseLegacy(newVKCallsFailure("step1", vkCallsFailureNetwork, transport)) {
+		t.Fatal("network transport failure must not fall back to client_id rotation")
+	}
+}
+
 func TestVKAuthDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
