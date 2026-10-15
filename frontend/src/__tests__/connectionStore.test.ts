@@ -54,6 +54,25 @@ describe('connectionStore', () => {
     expect(connectionStore.get().stages.dtls).toBe('pending');
   });
 
+
+  it('после DNS timeout завершается с понятной ошибкой и допускает повторный Connect', () => {
+    const message = 'Не удалось разрешить адрес VK API / проблема DNS';
+    connectionStore.begin(36);
+    connectionStore.progress({ stage: 'vk', state: 'running' });
+    connectionStore.progress({ stage: 'dns', state: 'error', message });
+    connectionStore.progress({ stage: 'vk', state: 'error', message });
+    connectionStore.disconnected();
+
+    expect(connectionStore.get().state).toBe('idle');
+    expect(connectionStore.get().lastError).toBe(message);
+    expect(connectionStore.get().stages.vk).toBe('error');
+
+    connectionStore.begin(36);
+    expect(connectionStore.get().state).toBe('connecting');
+    expect(connectionStore.get().lastError).toBeNull();
+    expect(connectionStore.get().stages.vk).toBe('pending');
+  });
+
   it('уведомляет подписчиков о статистике и состояниях', () => {
     const seen: string[] = [];
     const off = connectionStore.subscribe(state => seen.push(state.state));
