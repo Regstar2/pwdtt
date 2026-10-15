@@ -161,12 +161,14 @@ func TestVKAuthCancelWhileWaitingForCacheRefresh(t *testing.T) {
 	defer cache.mutex.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		_, _, _, err := getVkCredsCached(ctx, "test-hash", 987654321)
 		done <- err
 	}()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
