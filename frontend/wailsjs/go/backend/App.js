@@ -71,6 +71,10 @@ export function GetObfsMode() {
   return window['go']['backend']['App']['GetObfsMode']();
 }
 
+export function GetRecoveryNotices() {
+  return window['go']['backend']['App']['GetRecoveryNotices']();
+}
+
 export function GetProfile(arg1) {
   return window['go']['backend']['App']['GetProfile'](arg1);
 }
