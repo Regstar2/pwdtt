@@ -14,7 +14,19 @@ import { connectionStore } from './lib/stores/connectionStore';
 import type { ConnectionProgress, ConnectionStage, ConnectionStageState } from './lib/stores/connectionStore';
 import type { LogLevel } from './lib/stores/logStore';
 import { EventsOn } from '../wailsjs/runtime/runtime';
-import { CheckUpdate } from '../wailsjs/go/backend/App';
+import { CheckUpdate, GetRecoveryNotices } from '../wailsjs/go/backend/App';
+
+function useRecoveryNotices() {
+  useEffect(() => {
+    GetRecoveryNotices().then(notices => {
+      if (!notices?.length) return;
+      for (const notice of notices) logStore.push('WARN', '[RECOVERY] ' + notice);
+      toastStore.show('Обнаружены повреждённые настройки или профили. Откройте журнал для подробностей.', 10000);
+    }).catch(() => {
+      logStore.push('WARN', '[RECOVERY] Не удалось запросить состояние восстановления настроек.');
+    });
+  }, []);
+}
 
 function useWdttPaste() {
   useEffect(() => {
@@ -203,6 +215,7 @@ function useUpdateChecker() {
 export default function App() {
   useWailsEvents();
   useWdttPaste();
+  useRecoveryNotices();
   const { updateInfo, closeUpdate } = useUpdateChecker();
 
   return (
