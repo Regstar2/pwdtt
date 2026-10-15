@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { OpenCaptcha, CancelCaptcha } from '../../wailsjs/go/backend/App';
+import { OpenCaptcha, CancelCaptcha } from '../../../wailsjs/go/backend/App';
 import './CaptchaPrompt.css';
 
 export interface CaptchaChallenge {
