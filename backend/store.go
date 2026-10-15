@@ -228,6 +228,9 @@ func (s *Store) readJSON(path, kind string, validate jsonValidator) ([]byte, err
 		s.addRecoveryNotice("Повреждённый "+kind+" не удалось сохранить. Запись заблокирована.")
 		return nil, fmt.Errorf("quarantine %s failed: %w", kind, err)
 	}
+	if err := os.Chmod(backup, 0o600); err != nil {
+		s.addRecoveryNotice("Копия повреждённого JSON создана, но не удалось ограничить права на неё.")
+	}
 	s.addRecoveryNotice("Повреждённый "+kind+" сохранён в резервной копии (.corrupt-*.bak). Проверьте настройки.")
 	return nil, errQuarantinedJSON
 }
