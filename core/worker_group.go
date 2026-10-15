@@ -83,7 +83,11 @@ func WorkerGroup(
 
 	credStreamID := groupID * 100
 	credentialsStarted := time.Now()
-	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
+	getCredentials := tp.GetCredentials
+	if getCredentials == nil {
+		getCredentials = GetCreds
+	}
+	user, pass, turnURLs, err := getCredentials(ctx, hash, credStreamID)
 	var creds *Credentials
 	if err == nil {
 		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
@@ -444,6 +448,8 @@ type TurnParams struct {
 	WrapKey  []byte
 	ObfsMode string
 	Trace    func(sessionID int, stage, state, message string, duration time.Duration)
+	// GetCredentials is a test seam; production uses GetCreds when nil.
+	GetCredentials func(context.Context, string, int) (string, string, []string, error)
 }
 
 type Credentials struct {
