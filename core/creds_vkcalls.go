@@ -207,6 +207,9 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 	if err != nil {
 		return "", "", nil, err
 	}
+	if apiErr := vkCallsAPIError(resp1); apiErr != nil {
+		return "", "", nil, newVKCallsFailure(step1, vkCallsAPIErrorKind(apiErr), apiErr)
+	}
 	anonymToken, err := extractVKCallsStr(resp1, "response", "token")
 	if err != nil {
 		return "", "", nil, newVKCallsFailure(step1, vkCallsFailureParse, fmt.Errorf("parse token: %w (resp: %s)", err, truncateVKCallsResp(resp1)))
@@ -276,6 +279,9 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 	resp4, err := doRequest(step4, step4URL)
 	if err != nil {
 		return "", "", nil, err
+	}
+	if okErr := vkCallsOKError(resp4); okErr != nil {
+		return "", "", nil, newVKCallsFailure(step4, vkCallsFailureOKCDN, okErr)
 	}
 	sessionKey, err := extractVKCallsStr(resp4, "session_key")
 	if err != nil {
