@@ -30,7 +30,7 @@ var (
 	diagnosticURLPattern = regexp.MustCompile(`(?i)(?:\b(?:https?|wss?|vkcalls?|wdtt|tg)://|\bvk\.com/call/(?:join/)?)[^\s"'<>\x60]+`)
 	diagnosticEncodedURLPattern = regexp.MustCompile(`(?i)(?:https?|wss?|vkcalls?|wdtt|tg)%3a%2f%2f[^\s"'<>\x60]+`)
 	diagnosticDoubleEncodedURLPattern = regexp.MustCompile(`(?i)(?:https?|wss?)%253a%252f%252f[^\s"'<>\x60]+`)
-	diagnosticEncodedFieldPattern = regexp.MustCompile(`(?i)((?:%22)?(?:anonymname|anonymous_name|user_id|device_id|access_token|password|hash|hash_id|call_hash|hashid|deviceid|userid|anonym_name|profilename|session_token|username|profile_name|link)(?:%22)?%(?:3a|3d))[^&\s"'<>]+`)
+	diagnosticEncodedFieldPattern = regexp.MustCompile(`(?i)((?:%22)?(?:anonymname|anonymous_name|user_id|device_id|access_token|password|hash|hash_id|call_hash|hashid|deviceid|userid|anonym_name|profilename|session_token|username|profile_name|link)(?:%22)?%(?:3a|3d))[^&\s"'<>\[\]]+`)
 	diagnosticQueryPattern = regexp.MustCompile(`(?i)([?&][a-z_][a-z0-9_.-]*=)[^&\s"'<>]+`)
 	windowsUserPathPattern = regexp.MustCompile(`(?i)(?:[a-z]:(?:\\|/)|\\\\)[^"'<>,;|\r\n]+`)
 	unixUserPathPattern = regexp.MustCompile(`(?:/home/|/Users/|/root/|/tmp/|/var/folders/)[^"'<>,;|\s]+`)
