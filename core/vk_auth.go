@@ -299,6 +299,9 @@ func vkDelayRandom(ctx context.Context, minMs, maxMs int) error {
 }
 
 func getVkCredsCached(ctx context.Context, link string, streamID int) (string, string, []string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", nil, err
+	}
 	cache := getStreamCache(streamID)
 	cacheID := getCacheID(streamID)
 
@@ -316,6 +319,9 @@ func getVkCredsCached(ctx context.Context, link string, streamID int) (string, s
 
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", "", nil, err
+	}
 
 	if cache.creds.Link == link && time.Now().Before(cache.creds.ExpiresAt) && len(cache.creds.ServerAddrs) > 0 {
 		return cache.creds.Username, cache.creds.Password, cloneStringSlice(cache.creds.ServerAddrs), nil
