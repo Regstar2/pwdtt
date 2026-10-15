@@ -24,7 +24,9 @@ describe('issue #25 diagnostics privacy', () => {
   ];
 
   it.each(examples)('redacts "%s"', (input, secret) => {
-    expect(sanitizeLogText(input)).not.toContain(secret);
+    const sanitized = sanitizeLogText(input);
+    expect(sanitized).not.toContain(secret);
+    expect(sanitizeLogText(sanitized)).toBe(sanitized);
     logStore.push('DEBUG', input);
     const stored = logStore.getAll()[0].message;
     expect(stored).not.toContain(secret);
