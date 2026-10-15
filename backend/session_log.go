@@ -31,6 +31,7 @@ type LogFile struct {
 	warnings  []string
 	closed    bool
 	truncated bool
+	diskFault bool
 }
 
 func (lf *LogFile) warnLocked(message string) {
@@ -156,6 +157,7 @@ func (lf *LogFile) Write(level, message string) error {
 	n, err := lf.file.WriteString(line)
 	if err != nil || n != len(line) {
 		lf.warnLocked("Не удалось записать событие в файл журнала сессии.")
+		lf.diskFault = true
 		if err == nil {
 			err = fmt.Errorf("short write: %d/%d", n, len(line))
 		}
@@ -166,6 +168,7 @@ func (lf *LogFile) Write(level, message string) error {
 	if lf.lines%50 == 0 {
 		if err := lf.file.Sync(); err != nil {
 			lf.warnLocked("Не удалось синхронизировать файл журнала сессии.")
+			lf.diskFault = true
 			return err
 		}
 	}
@@ -189,9 +192,11 @@ func (lf *LogFile) Close() error {
 	closeErr := lf.file.Close()
 	if syncErr != nil {
 		lf.warnLocked("Не удалось синхронизировать файл журнала при завершении сессии.")
+		lf.diskFault = true
 	}
 	if closeErr != nil {
 		lf.warnLocked("Не удалось закрыть файл журнала сессии.")
+		lf.diskFault = true
 	}
 	return errors.Join(syncErr, closeErr)
 }
@@ -212,10 +217,11 @@ func (lf *LogFile) Snapshot() sessionLogSnapshot {
 	if lf.file != nil && !lf.closed {
 		if err := lf.file.Sync(); err != nil {
 			lf.warnLocked("Не удалось синхронизировать файл журнала при экспорте.")
+			lf.diskFault = true
 		}
 	}
 	snapshot := sessionLogSnapshot{warnings: append([]string(nil), lf.warnings...)}
-	if lf.file != nil && !lf.truncated {
+	if lf.file != nil && !lf.truncated && !lf.diskFault {
 		data, err := os.ReadFile(lf.path)
 		if err == nil && len(data) > 0 {
 			snapshot.content = sanitizeDiagnosticText(string(data))
