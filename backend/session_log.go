@@ -148,6 +148,7 @@ func (lf *LogFile) Write(level, message string) error {
 	}
 	if lf.closed {
 		lf.warnLocked("Попытка записи в закрытый журнал сессии.")
+		lf.diskFault = true
 		return errors.New("session log file closed")
 	}
 	if lf.truncated {
