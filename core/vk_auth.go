@@ -523,9 +523,15 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 			return "", "", nil, err
 		}
 		log.Printf("[STREAM %d] [VK Auth] getCallPreview returned non-transport error kind=%s", streamID, classifyVKAuthError(err))
-	} else if callErr := fatalCallError(resp); callErr != nil {
-		log.Printf("[STREAM %d] [VK Auth] getCallPreview returned non-retryable call error: %v", streamID, callErr)
-		return "", "", nil, callErr
+	} else if errObj, hasErr := resp["error"].(map[string]interface{}); hasErr {
+		if callErr := fatalCallError(resp); callErr != nil {
+			return "", "", nil, callErr
+		}
+		apiErr := &vkAuthAPIError{Code: vkErrorCode(errObj["error_code"])}
+		switch classifyVKAuthError(apiErr) {
+		case vkAuthRateLimit, vkAuthCaptcha, vkAuthInvalidClient:
+			return "", "", nil, apiErr
+		}
 	}
 
 	if err := vkDelayRandom(ctx, 200, 400); err != nil {
