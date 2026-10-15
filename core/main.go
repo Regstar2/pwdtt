@@ -76,7 +76,7 @@ type Core struct {
 	cfg               Config
 	cancel            context.CancelFunc
 	pauseFlag         int32
-	CaptchaResultChan chan string
+	captcha           *captchaCoordinator
 	captchaMode       atomic.Value
 	vkAuthMode        atomic.Value
 	events            chan Event
@@ -121,7 +121,7 @@ func New(cfg Config) *Core {
 
 	c := &Core{
 		cfg:               cfg,
-		CaptchaResultChan: make(chan string, 1),
+		captcha:           newCaptchaCoordinator(),
 		events:            make(chan Event, 1024), // увеличен буфер для логов
 	}
 	c.captchaMode.Store(normalizeCaptchaMode(cfg.CaptchaMode))
@@ -149,9 +149,6 @@ func (c *Core) start() error {
 	log.SetFlags(0)
 	log.SetOutput(&logWriter{core: c})
 
-	// Подменяем глобальный CaptchaResultChan на канал из Core
-	CaptchaResultChan = c.CaptchaResultChan
-
 	// Устанавливаем activeCore для доступа из session/vk_auth
 	setActiveCore(c)
 
@@ -159,7 +156,7 @@ func (c *Core) start() error {
 		SetActiveFingerprint(c.cfg.Fingerprint)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), captchaCoreContextKey{}, c))
 	c.cancel = cancel
 
 	// Валидация
@@ -379,23 +376,6 @@ func (c *Core) SetDebugLogging(enabled bool) {
 	c.debugLogging.Store(enabled)
 }
 
-// SolveCaptcha передаёт токен капчи в ядро.
-// Атомарно: drain старого + запись нового.
-func (c *Core) SolveCaptcha(token string) {
-	// Дренируем устаревший токен
-	select {
-	case <-c.CaptchaResultChan:
-	default:
-	}
-	// Записываем новый (если канал полон — дропаем старый)
-	select {
-	case c.CaptchaResultChan <- token:
-	default:
-		<-c.CaptchaResultChan
-		c.CaptchaResultChan <- token
-	}
-}
-
 // ═══════════════════════════════════════════════════
 // INTERNAL
 // ═══════════════════════════════════════════════════
@@ -462,13 +442,6 @@ func normalizeVKAuthMode(mode string) string {
 	}
 }
 
-func drainCaptchaResult() {
-	select {
-	case <-CaptchaResultChan:
-	default:
-	}
-}
-
 // getVKAuthMode возвращает текущий режим VK авторизации.
 func (c *Core) getVKAuthMode() string {
 	mode, _ := c.vkAuthMode.Load().(string)
@@ -506,10 +479,6 @@ func getVKAuthMode() string {
 	}
 	return "vkcalls"
 }
-
-// CaptchaResultChan — глобальный канал для совместимости с vk_auth.go.
-// При Start() подменяется на канал из Core.
-var CaptchaResultChan = make(chan string, 1)
 
 // ═══════════════════════════════════════════════════
 // LOG WRITER — перенаправляет log.Printf в канал событий с фильтрацией

@@ -140,13 +140,37 @@ func (b *Bridge) SetDebugLogging(enabled bool) {
 	}
 }
 
-func (b *Bridge) SendCaptchaResult(token string) {
+func (b *Bridge) CaptchaBrowserRequest(id string) (context.Context, string, bool) {
+	b.mu.Lock()
+	c := b.core
+	b.mu.Unlock()
+	if c == nil {
+		return nil, "", false
+	}
+	return c.CaptchaBrowserRequest(id)
+}
+
+func (b *Bridge) CaptchaBrowserLaunchFailed(id string) {
 	b.mu.Lock()
 	c := b.core
 	b.mu.Unlock()
 	if c != nil {
-		c.SolveCaptcha(token)
+		c.CaptchaBrowserLaunchFailed(id)
 	}
+}
+
+func (b *Bridge) SubmitCaptcha(id, token string) bool {
+	b.mu.Lock()
+	c := b.core
+	b.mu.Unlock()
+	return c != nil && c.SubmitCaptcha(id, token)
+}
+
+func (b *Bridge) CancelCaptcha(id string) bool {
+	b.mu.Lock()
+	c := b.core
+	b.mu.Unlock()
+	return c != nil && c.CancelCaptcha(id)
 }
 
 func tunnelTrafficConfirmed(active int32, bytesUp, bytesDown int64) bool {
@@ -250,8 +274,8 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 					b.mu.Unlock()
 					b.recordLog("INFO", "[WG] Конфиг применён, ожидаем подтверждения двустороннего трафика", true)
 				}
-			case "captcha_required":
-				b.onEvent("captcha_required", ev.Data)
+			case "captcha_required", "captcha_closed":
+				b.onEvent(ev.Name, ev.Data)
 			case "ready":
 				b.recordLog("INFO", "[ЯДРО] Рабочая DTLS-сессия установлена", true)
 			default:

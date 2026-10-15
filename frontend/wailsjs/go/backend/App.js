@@ -138,3 +138,11 @@ export function VKLogin() {
 export function VKLogout() {
   return window['go']['backend']['App']['VKLogout']();
 }
+
+export function OpenCaptcha(arg1) {
+  return window['go']['backend']['App']['OpenCaptcha'](arg1);
+}
+
+export function CancelCaptcha(arg1) {
+  return window['go']['backend']['App']['CancelCaptcha'](arg1);
+}

@@ -69,3 +69,6 @@ export function SyncProfileVKSettings(arg1:string,arg2:string,arg3:string,arg4:A
 export function VKLogin():Promise<void>;
 
 export function VKLogout():Promise<void>;
+
+export function OpenCaptcha(arg1:string):Promise<void>;
+export function CancelCaptcha(arg1:string):Promise<boolean>;

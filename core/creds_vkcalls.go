@@ -98,6 +98,75 @@ func vkCallsAPIErrorKind(err error) vkCallsFailureKind {
 	return vkCallsFailureVKAPI
 }
 
+// vkCallsRequestWithCaptcha keeps a VKCalls challenge on the same API step
+// and with the same anonymous identity. It never rotates clients or replays
+// a terminal CAPTCHA error more than once.
+func vkCallsRequestWithCaptcha(
+	ctx context.Context,
+	streamID int,
+	step, endpoint string,
+	request func(string, string) (map[string]interface{}, error),
+	solve func(context.Context, int, *VkCaptchaError) (string, error),
+) (map[string]interface{}, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resp, err := request(step, endpoint)
+		if err != nil {
+			return nil, err
+		}
+		apiErr := vkCallsAPIError(resp)
+		if apiErr == nil {
+			return resp, nil
+		}
+
+		var challenge *VkCaptchaError
+		if !errors.As(apiErr, &challenge) {
+			return nil, newVKCallsFailure(step, vkCallsAPIErrorKind(apiErr), apiErr)
+		}
+		// We can resume only when VK supplied an official browser challenge and
+		// the request identifiers needed to submit its success_token.
+		if attempt > 0 || challenge.RedirectURI == "" || challenge.SessionToken == "" || challenge.CaptchaSid == "" {
+			log.Printf("[STREAM %d] [VKCalls] captcha cannot be resumed step=%s attempt=%d redirect=%t session=%t sid=%t",
+				streamID, step, attempt+1, challenge.RedirectURI != "", challenge.SessionToken != "", challenge.CaptchaSid != "")
+			return nil, newVKCallsFailure(step, vkCallsFailureCaptcha, apiErr)
+		}
+
+		log.Printf("[STREAM %d] [VKCalls] captcha required step=%s; solving official challenge", streamID, step)
+		token, solveErr := solve(ctx, streamID, challenge)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if solveErr != nil {
+			return nil, newVKCallsFailure(step, vkCallsFailureCaptcha, fmt.Errorf("captcha solving failed: %w", solveErr))
+		}
+		if strings.TrimSpace(token) == "" {
+			return nil, newVKCallsFailure(step, vkCallsFailureCaptcha, errors.New("captcha success token empty"))
+		}
+		endpoint = vkCallsCaptchaRetryURL(endpoint, challenge, token)
+	}
+	return nil, newVKCallsFailure(step, vkCallsFailureCaptcha, errors.New("captcha retry exhausted"))
+}
+
+func vkCallsCaptchaRetryURL(endpoint string, challenge *VkCaptchaError, token string) string {
+	attempt := challenge.CaptchaAttempt
+	if attempt == "" || attempt == "0" {
+		attempt = "1"
+	}
+	// Append only VK's documented CAPTCHA response fields. Preserve the
+	// already-escaped original API parameters and device identity unchanged.
+	fields := neturl.Values{
+		"captcha_key":       {""},
+		"captcha_sid":       {challenge.CaptchaSid},
+		"captcha_ts":        {challenge.CaptchaTs},
+		"captcha_attempt":   {attempt},
+		"is_sound_captcha":  {"0"},
+		"success_token":     {token},
+	}
+	return endpoint + "&" + fields.Encode()
+}
+
 type vkCallsVKAPIError struct {
 	Code    int
 	Message string
@@ -197,18 +266,21 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 		return response, nil
 	}
 
+	// The same client/profile must complete the CAPTCHA and resume the
+	// original API request; switching to legacy auth drops this identity.
+	solveChallenge := func(ctx context.Context, id int, challenge *VkCaptchaError) (string, error) {
+		return solveCaptchaBySelectedMode(ctx, id, 1, challenge, client, profile, nil)
+	}
+
 	step1 := "step1 auth.getAnonymToken"
 	step1URL := fmt.Sprintf(
 		"https://%s/method/auth.getAnonymToken?v=%s&client_id=%s&link=%s&device_id=%s&anonymName=%s&lang=en",
 		vkCallsAPIHost, vkCallsAnonAPIVersion, vkConnectClientID,
 		linkURL, deviceID, nameEnc,
 	)
-	resp1, err := doRequest(step1, step1URL)
+	resp1, err := vkCallsRequestWithCaptcha(ctx, streamID, step1, step1URL, doRequest, solveChallenge)
 	if err != nil {
 		return "", "", nil, err
-	}
-	if apiErr := vkCallsAPIError(resp1); apiErr != nil {
-		return "", "", nil, newVKCallsFailure(step1, vkCallsAPIErrorKind(apiErr), apiErr)
 	}
 	anonymToken, err := extractVKCallsStr(resp1, "response", "token")
 	if err != nil {
@@ -222,17 +294,9 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 		"https://%s/method/messages.getCallPreview?v=%s&anonymous_token=%s&device_id=%s&extended=1&fields=first_name,last_name,photo_200&lang=en&link=%s",
 		vkCallsAPIHost, vkCallsAnonAPIVersion, anonymTokenEnc, deviceID, linkURL,
 	)
-	resp2, err := doRequest(step2, step2URL)
+	resp2, err := vkCallsRequestWithCaptcha(ctx, streamID, step2, step2URL, doRequest, solveChallenge)
 	if err != nil {
 		return "", "", nil, err
-	}
-	if apiErr := vkCallsAPIError(resp2); apiErr != nil {
-		if captchaErr, ok := apiErr.(*VkCaptchaError); ok {
-			log.Printf("[STREAM %d] [VKCalls] step2 captcha gate appeared (sid=%q, redirect_uri=%t)", streamID, captchaErr.CaptchaSid, captchaErr.RedirectURI != "")
-		} else if callErr, ok := asCallUnavailableError(apiErr); ok {
-			log.Printf("[STREAM %d] [VKCalls] step2 non-retryable call error: %v", streamID, callErr)
-		}
-		return "", "", nil, newVKCallsFailure(step2, vkCallsAPIErrorKind(apiErr), apiErr)
 	}
 	userIDFloat, err := extractVKCallsFloat(resp2, "response", "user_id")
 	if err != nil {
@@ -251,17 +315,9 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
 		vkCallsAPIHost, vkCallsAnonAPIVersion, anonymTokenEnc, deviceID, linkURL,
 		nameEnc, userIDStr, neturl.QueryEscape(secret),
 	)
-	resp3, err := doRequest(step3, step3URL)
+	resp3, err := vkCallsRequestWithCaptcha(ctx, streamID, step3, step3URL, doRequest, solveChallenge)
 	if err != nil {
 		return "", "", nil, err
-	}
-	if apiErr := vkCallsAPIError(resp3); apiErr != nil {
-		if captchaErr, ok := apiErr.(*VkCaptchaError); ok {
-			log.Printf("[STREAM %d] [VKCalls] step3 captcha gate appeared (sid=%q, redirect_uri=%t)", streamID, captchaErr.CaptchaSid, captchaErr.RedirectURI != "")
-		} else if callErr, ok := asCallUnavailableError(apiErr); ok {
-			log.Printf("[STREAM %d] [VKCalls] step3 non-retryable call error: %v", streamID, callErr)
-		}
-		return "", "", nil, newVKCallsFailure(step3, vkCallsAPIErrorKind(apiErr), apiErr)
 	}
 	okAnonymToken, err := extractVKCallsStr(resp3, "response", "token")
 	if err != nil {
@@ -389,9 +445,7 @@ func vkCallsAPIError(resp map[string]interface{}) error {
 		return callErr
 	}
 	if int(code) == 14 {
-		if errJSON, err := json.Marshal(errObj); err == nil {
-			log.Printf("[VKCalls] captcha error response: %s", truncateVKCallsLog(string(errJSON), 300))
-		}
+		log.Printf("[VKCalls] captcha response error_code=14 redirect_uri=%t", errObj["redirect_uri"] != nil)
 		return parseVkCaptchaError(errObj)
 	}
 	return &vkCallsVKAPIError{Code: int(code), Message: msg}
