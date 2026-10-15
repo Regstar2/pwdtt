@@ -19,7 +19,8 @@ type Bridge struct {
 	running            bool
 	wgApplied          bool
 	connectedPublished bool
-	logFile            *LogFile // полный лог сессии
+	logFile            *LogFile // current or last session, retained after disconnect
+	logWarningSent     bool
 }
 
 func NewBridge(ctx context.Context, store *Store, onEvent func(string, ...any)) *Bridge {
@@ -46,6 +47,9 @@ func (b *Bridge) Connect(params ConnectParams) error {
 		b.running = false
 		b.wgApplied = false
 		b.connectedPublished = false
+		if b.logFile != nil {
+			_ = b.logFile.Close()
+		}
 		b.mu.Unlock()
 	}
 
@@ -79,6 +83,15 @@ func (b *Bridge) Connect(params ConnectParams) error {
 		DebugLogging: settings.DebugLogging,
 	}
 
+	session := b.store.OpenLogFile()
+	b.mu.Lock()
+	b.logFile = session
+	b.logWarningSent = session.Warning() != ""
+	b.mu.Unlock()
+	if warning := session.Warning(); warning != "" {
+		b.onEvent("log", "WARN", warning)
+	}
+
 	c := core.New(cfg)
 	events, err := c.Start()
 	if err != nil {
@@ -92,7 +105,6 @@ func (b *Bridge) Connect(params ConnectParams) error {
 	b.running = true
 	b.wgApplied = false
 	b.connectedPublished = false
-	b.logFile = b.store.OpenLogFile()
 	b.mu.Unlock()
 
 	go b.forwardEvents(events)
@@ -141,6 +153,36 @@ func tunnelTrafficConfirmed(active int32, bytesUp, bytesDown int64) bool {
 	return active > 0 && bytesUp > 0 && bytesDown > 0
 }
 
+// SnapshotSessionLog returns the current or most recently closed journal.
+func (b *Bridge) SnapshotSessionLog() (sessionLogSnapshot, bool) {
+	b.mu.Lock()
+	session := b.logFile
+	b.mu.Unlock()
+	if session == nil {
+		return sessionLogSnapshot{}, false
+	}
+	return session.Snapshot(), true
+}
+
+func (b *Bridge) recordLog(level, message string, emitUI bool) {
+	message = sanitizeDiagnosticText(message)
+	var warning string
+	b.mu.Lock()
+	if b.logFile != nil {
+		if err := b.logFile.Write(level, message); err != nil && !b.logWarningSent {
+			warning = b.logFile.Warning()
+			b.logWarningSent = true
+		}
+	}
+	b.mu.Unlock()
+	if emitUI {
+		b.onEvent("log", level, message)
+	}
+	if warning != "" {
+		b.onEvent("log", "WARN", warning)
+	}
+}
+
 // forwardEvents читает канал событий ядра и пробрасывает в Wails.
 func (b *Bridge) forwardEvents(events <-chan core.Event) {
 	for ev := range events {
@@ -149,17 +191,7 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			b.onEvent("state_changed", ev.Status)
 
 		case core.EventLog:
-			message := sanitizeDiagnosticText(ev.Message)
-			// Пишем ВСЁ в файл (включая отфильтрованное для UI), но уже без чувствительных полей.
-			b.mu.Lock()
-			if b.logFile != nil {
-				b.logFile.Write(ev.Level, message)
-			}
-			b.mu.Unlock()
-			// В UI — только отфильтрованное
-			if ev.Level != "SKIP" {
-				b.onEvent("log", ev.Level, message)
-			}
+			b.recordLog(ev.Level, ev.Message, ev.Level != "SKIP")
 
 		case core.EventStats:
 			b.onEvent("stats", map[string]any{
@@ -175,7 +207,7 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			}
 			b.mu.Unlock()
 			if publishConnected {
-				b.onEvent("log", "INFO", "[WG] Двусторонний трафик подтверждён, туннель активен")
+				b.recordLog("INFO", "[WG] Двусторонний трафик подтверждён, туннель активен", true)
 				b.onEvent("connection_progress", map[string]any{
 					"stage": "vpn", "state": "success", "message": "VPN-туннель активен",
 				})
@@ -183,6 +215,7 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			}
 
 		case core.EventError:
+			b.recordLog("ERROR", ev.Message, false)
 			b.onEvent("error", sanitizeDiagnosticText(ev.Message))
 
 		case core.EventEvent:
@@ -190,24 +223,15 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			case "connection_progress":
 				b.onEvent("connection_progress", ev.Data)
 			case "diagnostic":
-				b.onEvent("diagnostic_event", ev.Data)
-				b.mu.Lock()
-				if b.logFile != nil {
-					b.logFile.Write("DEBUG", ev.Data)
-				}
-				b.mu.Unlock()
+				b.onEvent("diagnostic_event", sanitizeDiagnosticText(ev.Data))
+				b.recordLog("DEBUG", ev.Data, false)
 			case "wg_config":
 				b.onEvent("connection_progress", map[string]any{
 					"stage": "vpn", "state": "running", "message": "Настройка VPN-маршрутов",
 				})
-				b.onEvent("log", "INFO", "[WG] Применение конфига...")
+				b.recordLog("INFO", "[WG] Применение конфига...", true)
 				wgLogf := func(msg string) {
-					b.onEvent("log", "INFO", "[WG] "+msg)
-					b.mu.Lock()
-					if b.logFile != nil {
-						b.logFile.Write("INFO", "[WG] "+msg)
-					}
-					b.mu.Unlock()
+					b.recordLog("INFO", "[WG] "+msg, true)
 				}
 				if err := wg.Apply(ev.Data, ev.TurnIPs, wgLogf); err != nil {
 					b.onEvent("connection_progress", map[string]any{
@@ -224,12 +248,12 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 					b.mu.Lock()
 					b.wgApplied = true
 					b.mu.Unlock()
-					b.onEvent("log", "INFO", "[WG] Конфиг применён, ожидаем подтверждения двустороннего трафика")
+					b.recordLog("INFO", "[WG] Конфиг применён, ожидаем подтверждения двустороннего трафика", true)
 				}
 			case "captcha_required":
 				b.onEvent("captcha_required", ev.Data)
 			case "ready":
-				b.onEvent("log", "INFO", "[ЯДРО] Рабочая DTLS-сессия установлена")
+				b.recordLog("INFO", "[ЯДРО] Рабочая DTLS-сессия установлена", true)
 			default:
 				b.onEvent("event", ev.Name)
 			}
@@ -246,12 +270,18 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 	b.wgApplied = false
 	b.connectedPublished = false
 	b.core = nil
+	var warning string
 	if b.logFile != nil {
-		b.logFile.Close()
-		b.logFile = nil
+		if err := b.logFile.Close(); err != nil && !b.logWarningSent {
+			warning = b.logFile.Warning()
+			b.logWarningSent = true
+		}
 	}
 	b.mu.Unlock()
 
+	if warning != "" {
+		b.onEvent("log", "WARN", warning)
+	}
 	b.onEvent("state_changed", "disconnected")
 	log.Printf("[BRIDGE] Ядро завершилось")
 }

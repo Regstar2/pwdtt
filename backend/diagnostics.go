@@ -24,10 +24,22 @@ type diagnosticEvent struct {
 	Message     string `json:"message,omitempty"`
 }
 
-var sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token)"?\s*[:=]\s*"?)([^"&\s,}\]&]+)`)
+var (
+	sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name)"?\s*[:=]\s*"?)([^"\s,}\]&]+)`)
+	quotedDiagnosticPattern = regexp.MustCompile(`(?i)("?(?:access_token|anonymous_token|session_key|session_token|success_token|client_secret|credential|password|secret|device_id|user_id|token|hash|call_hash|username|user_name|hostname|first_name|last_name|display_name|full_name|profile_name)"?\s*[:=]\s*)"[^"]*"`)
+	diagnosticURLPattern = regexp.MustCompile(`(?i)(?:\b(?:https?|wss?|vkcalls?|wdtt|tg)://|\bvk\.com/call/(?:join/)?)[^\s"'<>\x60]+`)
+	diagnosticQueryPattern = regexp.MustCompile(`(?i)([?&][a-z_][a-z0-9_.-]*=)[^&\s"'<>]+`)
+	windowsUserPathPattern = regexp.MustCompile(`(?i)(?:[a-z]:\\|\\\\)[^"'<>,;|\r\n]+`)
+	unixUserPathPattern = regexp.MustCompile(`(?:/home/|/Users/|/root/|/tmp/|/var/folders/)[^"'<>,;|\s]+`)
+)
 
 func sanitizeDiagnosticText(message string) string {
-	return sensitiveDiagnosticPattern.ReplaceAllString(message, "${1}<redacted>")
+	message = diagnosticURLPattern.ReplaceAllString(message, "[link redacted]")
+	message = windowsUserPathPattern.ReplaceAllString(message, "[path redacted]")
+	message = unixUserPathPattern.ReplaceAllString(message, "[path redacted]")
+	message = quotedDiagnosticPattern.ReplaceAllString(message, `${1}"[redacted]"`)
+	message = sensitiveDiagnosticPattern.ReplaceAllString(message, "${1}[redacted]")
+	return diagnosticQueryPattern.ReplaceAllString(message, "${1}[redacted]")
 }
 
 func newOperationID(prefix string) string {

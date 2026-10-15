@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -164,66 +163,6 @@ func (s *Store) CreateLogFile(peerIP string) (*os.File, error) {
 }
 
 // ═══════════════════════════════════════════════════
-// LOG FILE — запись полных логов в файл
-// ═══════════════════════════════════════════════════
-
-type LogFile struct {
-	file    *os.File
-	pending int // буферизованные строки до sync
-}
-
-// OpenLogFile открывает новый файл лога для сессии.
-func (s *Store) OpenLogFile() *LogFile {
-	dir := filepath.Join(s.baseDir, "logs")
-	os.MkdirAll(dir, 0o755)
-	ts := time.Now().Format("2006-01-02_15-04-05")
-	f, err := os.Create(filepath.Join(dir, ts+".log"))
-	if err != nil {
-		return nil
-	}
-	return &LogFile{file: f}
-}
-
-// Write пишет строку в файл лога.
-// Sync каждые 50 строк чтобы не душить I/O.
-func (lf *LogFile) Write(level, msg string) {
-	if lf == nil || lf.file == nil {
-		return
-	}
-	ts := time.Now().Format("15:04:05")
-	fmt.Fprintf(lf.file, "[%s] [%s] %s\n", ts, level, msg)
-	lf.pending++
-	if lf.pending >= 50 {
-		lf.file.Sync()
-		lf.pending = 0
-	}
-}
-
-// Close закрывает файл лога.
-func (lf *LogFile) Close() {
-	if lf != nil && lf.file != nil {
-		lf.file.Sync()
-		lf.file.Close()
-	}
-}
-
-// ReadLatestLog читает содержимое последнего лог-файла.
-func (s *Store) ReadLatestLog() string {
-	dir := filepath.Join(s.baseDir, "logs")
-	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) == 0 {
-		return ""
-	}
-	// берём последний (сортировка по имени = по времени)
-	latest := entries[len(entries)-1]
-	data, err := os.ReadFile(filepath.Join(dir, latest.Name()))
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-// ═══════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════
 
@@ -251,6 +190,7 @@ func NewTestStore(t interface{ TempDir() string; Setenv(string, string) }) *Stor
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("APPDATA", filepath.Join(dir, ".config"))
 	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "servers"), 0o755)
 	os.MkdirAll(filepath.Join(dir, ".config", "pwdtt", "logs"), 0o755)
 	return NewStore()
