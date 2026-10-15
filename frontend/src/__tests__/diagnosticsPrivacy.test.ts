@@ -15,6 +15,8 @@ describe('issue #25 diagnostics privacy', () => {
     ['{"username":"Secret Name","user_id":123456}', 'Secret Name'],
     ['device_id=PrivateDeviceID', 'PrivateDeviceID'],
     ['hash_id=PrivateHashID', 'PrivateHashID'],
+    ['hashId=PrivateHashID', 'PrivateHashID'],
+    ['{"deviceId":"PrivateDeviceID"}', 'PrivateDeviceID'],
     ['server=PrivateProfile', 'PrivateProfile'],
     ['C:\\Users\\PrivateUser\\AppData\\Roaming\\pwdtt', 'PrivateUser'],
     ['C:/Users/PrivateUser/AppData/Roaming/pwdtt', 'PrivateUser'],
@@ -26,7 +28,7 @@ describe('issue #25 diagnostics privacy', () => {
     logStore.push('DEBUG', input);
     const stored = logStore.getAll()[0].message;
     expect(stored).not.toContain(secret);
-    expect(stored).toContain('[redacted]');
+    expect(stored).toMatch(/\[(?:link |path )?redacted\]/);
   });
 
   it('preserves non-sensitive operational information', () => {
