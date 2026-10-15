@@ -87,8 +87,8 @@ func (a *App) emitDiagnostic(event diagnosticEvent) {
 	if strings.TrimSpace(event.Level) == "" {
 		event.Level = "DEBUG"
 	}
-	event.Server = "[redacted]" // user-defined profile names are not diagnostic identifiers
-	event.HashID = "[redacted]"
+	if event.Server != "" { event.Server = "[redacted]" } // user-defined server aliases
+	if event.HashID != "" { event.HashID = "[redacted]" }
 	event.Message = sanitizeDiagnosticText(event.Message)
 	event.OperationID = sanitizeDiagnosticText(event.OperationID)
 	event.Stage = sanitizeDiagnosticText(event.Stage)
