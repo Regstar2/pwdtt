@@ -566,6 +566,9 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 					if ctx.Err() != nil {
 						return "", "", nil, ctx.Err()
 					}
+					if errors.Is(solveErr, context.Canceled) || errors.Is(solveErr, context.DeadlineExceeded) {
+						return "", "", nil, solveErr
+					}
 					log.Printf("[STREAM %d] [Captcha] Solve failed: %v", streamID, solveErr)
 					globalCaptchaLockout.Store(time.Now().Add(60 * time.Second).Unix())
 					return "", "", nil, errVKCaptchaWait
