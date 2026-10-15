@@ -56,8 +56,14 @@ func newVKAuthTransportError(ctx context.Context, stage, endpoint string, err er
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
+	kind := classifyVKAuthError(err)
+	if kind == vkAuthOther {
+		// Do()/ReadAll failed at the transport layer, even if the TLS
+		// adapter discarded the typed inner cause.
+		kind = vkAuthNetwork
+	}
 	return &vkAuthTransportError{
-		Stage: stage, Endpoint: endpoint, Kind: classifyVKAuthError(err), Err: err,
+		Stage: stage, Endpoint: endpoint, Kind: kind, Err: err,
 	}
 }
 
