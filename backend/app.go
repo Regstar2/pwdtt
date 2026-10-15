@@ -136,6 +136,34 @@ func (a *App) Disconnect() {
 	}
 }
 
+// OpenCaptcha launches the VK challenge in a native browser. The browser
+// returns only a verified VK success token; no token is exposed to the frontend.
+func (a *App) OpenCaptcha(requestID string) error {
+	if a.bridge == nil {
+		return errors.New("подключение не запущено")
+	}
+	ctx, challengeURL, ok := a.bridge.CaptchaBrowserRequest(requestID)
+	if !ok {
+		return errors.New("CAPTCHA устарела или уже открыта")
+	}
+	token, err := solveVKCaptchaInBrowser(ctx, challengeURL)
+	if err != nil {
+		a.bridge.CaptchaBrowserLaunchFailed(requestID)
+		if ctx.Err() != nil {
+			return errors.New("ожидание CAPTCHA отменено или завершилось")
+		}
+		return fmt.Errorf("не удалось завершить CAPTCHA в Edge: %w", err)
+	}
+	if !a.bridge.SubmitCaptcha(requestID, token) {
+		return errors.New("ответ CAPTCHA получен после завершения запроса")
+	}
+	return nil
+}
+
+func (a *App) CancelCaptcha(requestID string) bool {
+	return a.bridge != nil && a.bridge.CancelCaptcha(requestID)
+}
+
 func (a *App) IsRunning() bool {
 	return a.bridge.IsRunning()
 }
