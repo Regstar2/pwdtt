@@ -53,6 +53,19 @@ func TestVKAuthTransportClassification(t *testing.T) {
 	}
 }
 
+func TestVKCallsRateLimitResponseDoesNotFallback(t *testing.T) {
+	apiErr := vkCallsAPIError(map[string]interface{}{
+		"error": map[string]interface{}{"error_code": float64(29), "error_msg": "limit"},
+	})
+	if classifyVKAuthError(apiErr) != vkAuthRateLimit {
+		t.Fatalf("rate limit classified as %s", classifyVKAuthError(apiErr))
+	}
+	wrapped := newVKCallsFailure("step1 auth.getAnonymToken", vkCallsAPIErrorKind(apiErr), apiErr)
+	if vkAuthShouldUseLegacy(wrapped) {
+		t.Fatal("VK API rate limit must not trigger legacy credentials fallback")
+	}
+}
+
 func TestVKAuthDNSTimeoutDoesNotRotateClients(t *testing.T) {
 	var calls int
 	dns := &net.DNSError{Err: "i/o timeout", Name: "api.vk.me", IsTimeout: true}
