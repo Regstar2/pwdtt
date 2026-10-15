@@ -41,10 +41,17 @@ func newCaptchaCoordinator() *captchaCoordinator {
 }
 
 func (b *captchaCoordinator) begin(parent context.Context, url, mode string, timeout time.Duration) (*captchaPending, error) {
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
 	select {
 	case b.gate <- struct{}{}:
 	case <-parent.Done():
 		return nil, parent.Err()
+	}
+	if err := parent.Err(); err != nil {
+		<-b.gate
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	r := &captchaPending{
