@@ -35,6 +35,8 @@ func TestIssue25SanitizeSensitiveFormats(t *testing.T) {
     for _, tc := range cases {
         t.Run(tc.name, func(t *testing.T){
             result := sanitizeDiagnosticText(tc.input)
+            again := sanitizeDiagnosticText(result)
+            if again != result { t.Fatalf("redaction not idempotent: %q -> %q",result,again) }
             if strings.Contains(result,tc.secret) { t.Fatalf("leaked %q: %s",tc.secret,result) }
             if !strings.Contains(result,tc.marker) { t.Fatalf("missing redaction marker %q: %s",tc.marker,result) }
         })
