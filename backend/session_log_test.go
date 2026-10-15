@@ -57,7 +57,9 @@ func TestIssue44ReadFailureUsesMemory(t *testing.T) {
  store:=NewTestStore(t)
  session:=store.OpenLogFile()
  if err:=session.Write("INFO","read fails after write"); err!=nil { t.Fatal(err) }
- if err:=os.Remove(session.path); err!=nil { t.Fatal(err) }
+ session.mu.Lock()
+ session.path=filepath.Join(store.baseDir,"logs","unreadable.log")
+ session.mu.Unlock()
  snap:=session.Snapshot()
  if !snap.fallback || !strings.Contains(snap.content,"read fails after write") || len(snap.warnings)==0 { t.Fatalf("missing read fallback: %+v",snap) }
  _=session.Close()
