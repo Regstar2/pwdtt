@@ -307,7 +307,13 @@ func getVkCredsCached(ctx context.Context, link string, streamID int) (string, s
 	cache := getStreamCache(streamID)
 	cacheID := getCacheID(streamID)
 
-	cache.mutex.RLock()
+	for !cache.mutex.TryRLock() {
+		select {
+		case <-ctx.Done():
+			return "", "", nil, ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
 	if cache.creds.Link == link && time.Now().Before(cache.creds.ExpiresAt) && len(cache.creds.ServerAddrs) > 0 {
 		expires := time.Until(cache.creds.ExpiresAt)
 		u, p := cache.creds.Username, cache.creds.Password
