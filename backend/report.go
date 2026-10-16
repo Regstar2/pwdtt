@@ -60,9 +60,10 @@ func (a *App) GenerateReport(entries []LogEntry) string {
 		sb.WriteString("Warning: session journal unavailable.\n")
 	}
 	for _, warning := range snapshot.warnings {
-		fmt.Fprintf(&sb, "Warning: %s\n", warning)
+		fmt.Fprintf(&sb, "Warning: %s\n", boundedReportText(warning))
 	}
-	content := snapshot.content
+	content := sanitizeDiagnosticText(snapshot.content)
+	content = strings.ReplaceAll(content, "```", "` ` `")
 	if content == "" && ui.Len() > 0 {
 		content = ui.String()
 		sb.WriteString("Warning: using bounded UI history as session-log fallback.\n")

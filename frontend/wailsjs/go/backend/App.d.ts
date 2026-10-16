@@ -36,6 +36,8 @@ export function GetObfsAccepted():Promise<boolean>;
 
 export function GetObfsMode():Promise<string>;
 
+export function GetRecoveryNotices():Promise<Array<string>>;
+
 export function GetProfile(arg1:string):Promise<backend.ProfileData>;
 
 export function GetVersion():Promise<string>;

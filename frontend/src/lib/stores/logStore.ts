@@ -1,3 +1,5 @@
+import { sanitizeLogText } from '../utils/diagnostics';
+
 export type LogLevel = 'INFO' | 'ERROR' | 'WARN' | 'DEBUG';
 
 export interface LogEntry {
@@ -40,6 +42,7 @@ export const logStore = {
   },
 
   push: (level: LogLevel, message: string) => {
+    message = sanitizeLogText(message);
     const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     if (level === 'ERROR' || level === 'DEBUG') {

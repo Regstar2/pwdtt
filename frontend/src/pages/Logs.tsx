@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { IconSearch, IconTrashX, IconCopy, IconCheck } from '@tabler/icons-react';
 import { GenerateReport, GetDebugLogging, SetDebugLogging } from '../../wailsjs/go/backend/App';
 import { logStore, type LogEntry, type LogLevel } from '../lib/stores/logStore';
+import { sanitizeLogText } from '../lib/utils/diagnostics';
 import './Logs.css';
 
 type Filter = 'ALL' | 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
@@ -55,7 +56,7 @@ export default function Logs() {
   };
 
   const handleCopy = async () => {
-    const text = visible.map(e => `[${e.time}] [${e.level}] ${e.message}${e.count > 1 ? ` (×${e.count})` : ''}`).join('\n');
+    const text = visible.map(e => `[${e.time}] [${e.level}] ${sanitizeLogText(e.message)}${e.count > 1 ? ` (×${e.count})` : ''}`).join('\n');
     await navigator.clipboard.writeText(text);
     markCopied();
   };
@@ -63,7 +64,7 @@ export default function Logs() {
   const handleCopyDiagnostics = async () => {
     const report = await GenerateReport(entries.map(entry => ({
       level: entry.level,
-      message: entry.message,
+      message: sanitizeLogText(entry.message),
       time: entry.time,
       count: entry.count,
     })));

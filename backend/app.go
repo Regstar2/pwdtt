@@ -50,6 +50,8 @@ func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
 	settings := a.store.LoadSettings()
+	// Detect and quarantine damaged profiles before the frontend queries notices.
+	a.store.ListProfiles()
 	a.bridge = NewBridge(ctx, a.store, a.onBridgeEvent)
 
 	if settings.AutoStart {
@@ -246,6 +248,11 @@ func (a *App) ListProfiles() map[string]ProfileData {
 	return a.store.ListProfiles()
 }
 
+// GetRecoveryNotices returns privacy-safe messages about local JSON recovery.
+func (a *App) GetRecoveryNotices() []string {
+	return a.store.RecoveryNotices()
+}
+
 // ═══════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════
@@ -257,7 +264,9 @@ func (a *App) GetAutoStart() bool {
 func (a *App) SetAutoStart(v bool) error {
 	settings := a.store.LoadSettings()
 	settings.AutoStart = v
-	a.store.SaveSettings(settings)
+	if err := a.store.SaveSettings(settings); err != nil {
+		return err
+	}
 	return setAutoStart(v)
 }
 
@@ -331,5 +340,10 @@ func (a *App) beginVKOperationWithParent(parent context.Context) (context.Contex
 }
 
 func (a *App) onBridgeEvent(name string, args ...any) {
+	if len(args) > 0 && (name == "log" || name == "error") {
+		index := 0
+		if name == "log" && len(args) > 1 { index = 1 }
+		if msg, ok := args[index].(string); ok { args[index] = sanitizeDiagnosticText(msg) }
+	}
 	wails.EventsEmit(a.ctx, name, args...)
 }
