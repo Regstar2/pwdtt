@@ -527,7 +527,9 @@ func (lw *logWriter) Write(p []byte) (int, error) {
 }
 
 func classifyLevel(msg string) string {
-	low := strings.ToLower(msg)
+	// A successful VK Auth trace includes error_kind=success as structured metadata.
+	// It must not be promoted to an error by substring matching.
+	low := strings.ReplaceAll(strings.ToLower(msg), "error_kind=success", "")
 	switch {
 	case strings.Contains(low, "fatal") || strings.Contains(low, "ошибка") || strings.Contains(low, "error"):
 		return "ERROR"
