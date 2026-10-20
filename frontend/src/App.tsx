@@ -171,6 +171,7 @@ function useWailsEvents() {
           const reconnecting = tunnelStore.get() === 'connected';
           tunnelStore.set('connecting');
           if (reconnecting) {
+            clearPresentationQueue();
             connectionStore.reconnecting();
             logStore.push('WARN', 'DTLS-сессии прерваны, ожидаем восстановления');
           } else {

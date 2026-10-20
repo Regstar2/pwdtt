@@ -4,11 +4,11 @@ import "testing"
 
 func TestTunnelTrafficConfirmed(t *testing.T) {
 	tests := []struct {
-		name string
-		active int32
-		bytesUp, bytesDown int64
-		baselineUp, baselineDown int64
-		want bool
+		name                       string
+		active                     int32
+		bytesUp, bytesDown         int64
+		baselineUp, baselineDown   int64
+		want                       bool
 	}{
 		{name: "bidirectional active tunnel", active: 1, bytesUp: 128, bytesDown: 64, want: true},
 		{name: "no active dtls", active: 0, bytesUp: 128, bytesDown: 64, want: false},
