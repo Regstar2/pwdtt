@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"errors"
 	"net"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -217,7 +217,7 @@ func TestIssue51MismatchedWRAPKeyCannotEstablishDTLS(t *testing.T) {
 	if err := clientDTLS.HandshakeContext(ctx); !isDTLSTimeout(err) {
 		t.Fatalf("mismatched WRAP key should time out DTLS handshake, got %v", err)
 	}
-	if err := <-unwrapResult; err == nil || !errors.Is(err, errors.ErrUnsupported) && err.Error() == "" {
-		t.Fatalf("incorrect WRAP key unexpectedly accepted: %v", err)
+	if err := <-unwrapResult; err == nil || !strings.Contains(err.Error(), "obfs: auth") {
+		t.Fatalf("expected WRAP authentication failure, got %v", err)
 	}
 }
