@@ -11,6 +11,12 @@
 
 ## Автоматическая проверка
 
+В CI добавлены localhost UDP-тесты `TestIssue51*`: реальный DTLS handshake через существующие WRAP audio/video и двусторонний обмен, молчащий peer и несовпадающий WRAP-ключ. Это автономная симуляция канала, **не тест VK TURN/VPS**. Все сценарии включаются в `go test -race ./...` ядра.
+
+Для адресной проверки: `cd core; go test -race -count=1 -run '^TestIssue51' -v ./...`.
+
+
+
 В корне репозитория:
 
 ```powershell
