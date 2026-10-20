@@ -19,6 +19,8 @@ type Bridge struct {
 	running            bool
 	wgApplied          bool
 	connectedPublished bool
+	trafficBaselineUp   int64
+	trafficBaselineDown int64
 	logFile            *LogFile // current or last session, retained after disconnect
 	logWarningSent     bool
 }
@@ -39,6 +41,8 @@ func (b *Bridge) Connect(params ConnectParams) error {
 	b.running = true
 	b.wgApplied = false
 	b.connectedPublished = false
+	b.trafficBaselineUp = 0
+	b.trafficBaselineDown = 0
 	b.mu.Unlock()
 
 	// resetRunning сбрасывает флаг при любой ошибке до запуска forwardEvents
@@ -47,6 +51,8 @@ func (b *Bridge) Connect(params ConnectParams) error {
 		b.running = false
 		b.wgApplied = false
 		b.connectedPublished = false
+		b.trafficBaselineUp = 0
+		b.trafficBaselineDown = 0
 		if b.logFile != nil {
 			_ = b.logFile.Close()
 		}
@@ -173,8 +179,8 @@ func (b *Bridge) CancelCaptcha(id string) bool {
 	return c != nil && c.CancelCaptcha(id)
 }
 
-func tunnelTrafficConfirmed(active int32, bytesUp, bytesDown int64) bool {
-	return active > 0 && bytesUp > 0 && bytesDown > 0
+func tunnelTrafficConfirmed(active int32, bytesUp, bytesDown, baselineUp, baselineDown int64) bool {
+	return active > 0 && bytesUp > baselineUp && bytesDown > baselineDown
 }
 
 // SnapshotSessionLog returns the current or most recently closed journal.
@@ -225,11 +231,27 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 			})
 
 			b.mu.Lock()
-			publishConnected := b.wgApplied && !b.connectedPublished && tunnelTrafficConfirmed(ev.Active, ev.BytesUp, ev.BytesDown)
+			lostDTLS := ev.Active == 0 && b.connectedPublished
+			if ev.Active == 0 {
+				// Totals survive DTLS reconnects. They cannot prove current
+				// bidirectional traffic without a new baseline.
+				b.trafficBaselineUp = ev.BytesUp
+				b.trafficBaselineDown = ev.BytesDown
+				b.connectedPublished = false
+			}
+			publishConnected := b.wgApplied && !b.connectedPublished &&
+				tunnelTrafficConfirmed(ev.Active, ev.BytesUp, ev.BytesDown, b.trafficBaselineUp, b.trafficBaselineDown)
 			if publishConnected {
 				b.connectedPublished = true
 			}
 			b.mu.Unlock()
+			if lostDTLS {
+				b.recordLog("WARN", "[WG] Активных DTLS-сессий нет, ожидание восстановления соединения", true)
+				b.onEvent("state_changed", "connecting")
+				b.onEvent("connection_progress", map[string]any{
+					"stage": "dtls", "state": "warning", "message": "Нет активных DTLS-сессий; повторное подключение",
+				})
+			}
 			if publishConnected {
 				b.recordLog("INFO", "[WG] Двусторонний трафик подтверждён, туннель активен", true)
 				b.onEvent("connection_progress", map[string]any{
@@ -293,6 +315,8 @@ func (b *Bridge) forwardEvents(events <-chan core.Event) {
 	b.running = false
 	b.wgApplied = false
 	b.connectedPublished = false
+	b.trafficBaselineUp = 0
+	b.trafficBaselineDown = 0
 	b.core = nil
 	var warning string
 	if b.logFile != nil {

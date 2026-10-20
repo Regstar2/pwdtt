@@ -351,6 +351,11 @@ func (c *Core) start() error {
 
 		wg.Wait()
 		close(configCh)
+		if ctx.Err() == nil && !stats.EverEstablished.Load() && stats.DTLSHandshakeTimeouts.Load() > 0 {
+			const message = "DTLS не установлен после проверки режимов WRAP и TURN-адресов. TURN Allocate сам по себе не доказывает доступность peer. Проверьте UDP, порт и серверный WRAP."
+			c.emitConnectionProgress("dtls", "error", message)
+			c.emitError("DTLS_NO_SESSION", message, true)
+		}
 		log.Println("[ЯДРО] Все воркеры завершены")
 	}()
 

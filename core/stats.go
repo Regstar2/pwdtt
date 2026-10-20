@@ -6,9 +6,11 @@ import (
 )
 
 type Stats struct {
-	TotalBytesUp      atomic.Int64
-	TotalBytesDown    atomic.Int64
-	ActiveConnections atomic.Int32
+	TotalBytesUp         atomic.Int64
+	TotalBytesDown       atomic.Int64
+	ActiveConnections    atomic.Int32
+	EverEstablished       atomic.Bool
+	DTLSHandshakeTimeouts atomic.Int32
 }
 
 func NewStats() *Stats {
