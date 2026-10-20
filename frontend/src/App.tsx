@@ -168,10 +168,16 @@ function useWailsEvents() {
             logStore.push('INFO', '✓ Туннель активен');
           });
         } else if (s === 'connecting') {
+          const reconnecting = tunnelStore.get() === 'connected';
           tunnelStore.set('connecting');
-          connectionStore.setTunnelState('connecting');
-          logStore.clear();
-          logStore.push('INFO', '⟳ Подключение...');
+          if (reconnecting) {
+            connectionStore.reconnecting();
+            logStore.push('WARN', 'DTLS-сессии прерваны, ожидаем восстановления');
+          } else {
+            connectionStore.setTunnelState('connecting');
+            logStore.clear();
+            logStore.push('INFO', '⟳ Подключение...');
+          }
         } else if (s === 'stopped' || s === 'error' || s === 'disconnected') {
           clearPresentationQueue();
           tunnelStore.set('idle');
