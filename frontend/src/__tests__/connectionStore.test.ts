@@ -73,6 +73,25 @@ describe('connectionStore', () => {
     expect(connectionStore.get().stages.vk).toBe('pending');
   });
 
+  it('сбрасывает статус подключено при потере всех DTLS-сессий и допускает переподключение', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(500);
+    connectionStore.begin(9);
+    connectionStore.progress({ stage: 'dtls', state: 'success' });
+    connectionStore.connected();
+    expect(connectionStore.get().connectedAt).toBe(500);
+
+    connectionStore.reconnecting();
+    const pending = connectionStore.get();
+    expect(pending.state).toBe('connecting');
+    expect(pending.connectedAt).toBeNull();
+    expect(pending.stages.vpn).toBe('pending');
+    expect(pending.stages.dtls).toBe('running');
+
+    vi.spyOn(Date, 'now').mockReturnValue(900);
+    connectionStore.connected();
+    expect(connectionStore.get().connectedAt).toBe(900);
+  });
+
   it('уведомляет подписчиков о статистике и состояниях', () => {
     const seen: string[] = [];
     const off = connectionStore.subscribe(state => seen.push(state.state));

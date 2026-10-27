@@ -129,6 +129,17 @@ export const connectionStore = {
     update({ state: 'idle', activeWorkers: 0 });
   },
 
+  reconnecting() {
+    update({
+      state: 'connecting',
+      stage: 'dtls',
+      stages: { ...state.stages, dtls: 'running', workers: 'pending', vpn: 'pending' },
+      message: 'Нет активных DTLS-сессий; повторное подключение',
+      connectedAt: null,
+      lastError: null,
+    });
+  },
+
   connected() {
     update({
       state: 'connected',

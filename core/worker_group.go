@@ -15,8 +15,9 @@ const (
 	workersPerGroup  = 9
 	defaultCycleSecs = 36000
 
-	// maxAttemptsPerAddress — сколько раз пробуем один адрес, прежде чем забанить
-	maxAttemptsPerAddress = 3
+	// После двух DTLS timeout проверены оба режима на данном TURN relay.
+	// Не баним рабочий TURN: таймаут относится к peer/WRAP/сети, а не Allocate.
+	maxHandshakeAttemptsPerAddress = 2
 
 	// sleepWhenAllBanned — сколько спим, если все адреса забанены
 	sleepWhenAllBanned = 60 * time.Second
@@ -202,7 +203,7 @@ func WorkerGroup(
 
 			shouldGetConfig := getConfig
 			baseObfsMode := tp.ObfsMode
-			addressAttempts := 0
+			handshakeTimeouts := make(map[string]int)
 			currentTurnAddr := ""
 			workerObfsMode := baseObfsMode
 
@@ -236,12 +237,17 @@ func WorkerGroup(
 				// Фильтруем забаненные адреса
 				var available []string
 				for _, u := range urls {
-					if !GlobalBlacklist.IsBanned(u) {
+					if !GlobalBlacklist.IsBanned(u) && handshakeTimeouts[u] < maxHandshakeAttemptsPerAddress {
 						available = append(available, u)
 					}
 				}
 
-				// Если все адреса забанены — спим и пробуем заново
+				if len(available) == 0 && allDTLSAttemptsExhausted(urls, handshakeTimeouts) {
+					log.Printf("[ВОРКЕР #%d] DTLS не подтвердился ни на одном TURN-адресе, попытки исчерпаны", wid)
+					return
+				}
+
+				// Если нет TURN relay из-за Allocate — ждём истечения запрета.
 				if len(available) == 0 {
 					log.Printf("[ВОРКЕР #%d] Все TURN-адреса забанены (всего %d), спим %v",
 						wid, len(urls), sleepWhenAllBanned)
@@ -255,7 +261,6 @@ func WorkerGroup(
 				turnAddr := selectTurnAddress(available, wid)
 				if turnAddr != currentTurnAddr {
 					currentTurnAddr = turnAddr
-					addressAttempts = 0
 					workerObfsMode = baseObfsMode
 				}
 
@@ -316,32 +321,18 @@ func WorkerGroup(
 						continue
 
 					case SessionErrorWrapTimeout:
-						if groupID == 1 {
-							emitConnectionProgress("wrap", "warning", "WRAP/DTLS не подтверждён, меняем режим")
+						handshakeTimeouts[turnAddr]++
+						if handshakeTimeouts[turnAddr] < maxHandshakeAttemptsPerAddress {
+							workerObfsMode = nextObfsMode(workerObfsMode)
+							log.Printf("[ВОРКЕР #%d] DTLS timeout; повторяем с obfs_mode=%s", wid, workerObfsMode)
+						} else {
+							log.Printf("[ВОРКЕР #%d] DTLS timeout в обоих режимах; пробуем другой TURN (relay не баним)", wid)
 						}
-						// DTLS-таймаут — пробуем сменить обфускацию
-						log.Printf("[ВОРКЕР #%d] WRAP_TIMEOUT на адресе %s, пробуем сменить обфускацию",
-							wid, sessErr.Address)
-
-						workerObfsMode = nextObfsMode(workerObfsMode)
-						log.Printf("[ВОРКЕР #%d] Режим обфускации изменён на %s", wid, workerObfsMode)
-
-						// Увеличиваем счётчик попыток на этом адресе
-						addressAttempts++
-
-						// Если слишком много попыток на одном адресе — баним его
-						if addressAttempts >= maxAttemptsPerAddress {
-							if sessErr.Address != "" {
-								GlobalBlacklist.Ban(sessErr.Address)
-								log.Printf("[ВОРКЕР #%d] TURN-адрес %s забанен после %d попыток",
-									wid, sessErr.Address, addressAttempts)
-							}
-							addressAttempts = 0
-							// Продолжаем цикл — возьмём следующий адрес
-							continue
+						select {
+						case <-time.After(sleepAfterAddressDead):
+						case <-ctx.Done():
+							return
 						}
-
-						// Пробуем тот же адрес с новой обфускацией
 						continue
 
 					case SessionErrorFatal:
@@ -360,7 +351,7 @@ func WorkerGroup(
 					}
 				}
 
-				addressAttempts = 0
+				clear(handshakeTimeouts)
 				workerObfsMode = baseObfsMode
 
 				// После успешной сессии — небольшая пауза перед следующим циклом
@@ -379,6 +370,19 @@ func WorkerGroup(
 
 	wg.Wait()
 	log.Printf("[ГРУППА #%d] Все воркеры группы завершились.", groupID)
+}
+
+// An exhausted DTLS budget is independent of TURN Allocate reachability.
+func allDTLSAttemptsExhausted(urls []string, failures map[string]int) bool {
+	if len(urls) == 0 {
+		return false
+	}
+	for _, addr := range urls {
+		if failures[addr] < maxHandshakeAttemptsPerAddress {
+			return false
+		}
+	}
+	return true
 }
 
 func selectTurnAddress(available []string, workerID int) string {

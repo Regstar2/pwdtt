@@ -3,11 +3,14 @@ package core
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cbeuw/connutil"
@@ -31,13 +34,63 @@ type connectedUDPConn struct{ *net.UDPConn }
 
 func (c *connectedUDPConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c.Write(p) }
 
+// dtlsRelayTraffic captures packet counts only. Payload, credentials and peer IP
+// are deliberately excluded from diagnostics and exported reports.
+type dtlsRelayTraffic struct {
+	sent       atomic.Int64
+	received   atomic.Int64
+	fromPeer   atomic.Int64
+	accepted   atomic.Int64
+	rejected   atomic.Int64
+}
+
+func (m *dtlsRelayTraffic) hint() string {
+	switch {
+	case m.sent.Load() == 0:
+		return "no_outbound_relay_packets"
+	case m.received.Load() == 0:
+		return "no_inbound_relay_packets"
+	case m.fromPeer.Load() == 0:
+		return "no_inbound_from_expected_peer"
+	case m.accepted.Load() == 0:
+		return "inbound_wrap_not_verified"
+	default:
+		return "inbound_forwarded_to_dtls"
+	}
+}
+
+func (m *dtlsRelayTraffic) summary(peer *net.UDPAddr, mode string) string {
+	family := "ipv6"
+	if peer.IP.To4() != nil {
+		family = "ipv4"
+	}
+	return fmt.Sprintf("peer_family=%s peer_port=%d obfs_mode=%s sent=%d received=%d from_peer=%d accepted=%d rejected=%d observation=%s",
+		family, peer.Port, mode, m.sent.Load(), m.received.Load(), m.fromPeer.Load(),
+		m.accepted.Load(), m.rejected.Load(), m.hint())
+}
+
+func isDTLSTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var networkErr net.Error
+	if errors.As(err, &networkErr) && networkErr.Timeout() {
+		return true
+	}
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "deadline") || strings.Contains(message, "timeout")
+}
+
 // SessionErrorType — тип ошибки сессии
 type SessionErrorType string
 
 const (
 	// ADDRESS_DEAD — этот конкретный TURN-адрес не работает (квота, unreachable, timeout)
 	SessionErrorAddressDead SessionErrorType = "ADDRESS_DEAD"
-	// WRAP_TIMEOUT — DTLS-рукопожатие не прошло, нужно сменить обфускацию
+	// WRAP_TIMEOUT — таймаут DTLS; TURN Allocate мог быть успешным, причина пока неизвестна
 	SessionErrorWrapTimeout SessionErrorType = "WRAP_TIMEOUT"
 	// FATAL — невосстановимая ошибка (FATAL_AUTH, хеш мёртв и т.д.)
 	SessionErrorFatal SessionErrorType = "FATAL"
@@ -229,6 +282,7 @@ func RunSession(
 
 	var relayWg sync.WaitGroup
 	relayWg.Add(2)
+	var relayTraffic dtlsRelayTraffic
 
 	useWrap := len(tp.WrapKey) == wrapKeyLen
 
@@ -258,23 +312,28 @@ func RunSession(
 		buf := make([]byte, readBufLen)
 		plain := make([]byte, readBufSize)
 		for {
-			n, _, readErr := relay.ReadFrom(buf)
+			n, from, readErr := relay.ReadFrom(buf)
 			if readErr != nil {
 				return
+			}
+			relayTraffic.received.Add(1)
+			if src, ok := from.(*net.UDPAddr); ok && src.Port == peer.Port && src.IP.Equal(peer.IP) {
+				relayTraffic.fromPeer.Add(1)
 			}
 			payload := buf[:n]
 			if useWrap {
 				if !obfsIsRTPPacket(payload) {
-					log.Printf("[СЕССИЯ #%d] OBFS unwrap: unexpected packet (n=%d)", sessionID, n)
+					relayTraffic.rejected.Add(1)
 					continue
 				}
 				m, wrapErr := obfsUnwrapPacket(tp.WrapKey, payload, plain)
 				if wrapErr != nil {
-					log.Printf("[СЕССИЯ #%d] OBFS unwrap: %v (n=%d)", sessionID, wrapErr, n)
+					relayTraffic.rejected.Add(1)
 					continue
 				}
 				payload = plain[:m]
 			}
+			relayTraffic.accepted.Add(1)
 			if _, writeErr := pipeA.WriteTo(payload, peer); writeErr != nil {
 				return
 			}
@@ -304,6 +363,7 @@ func RunSession(
 			if _, writeErr := relay.WriteTo(out, peer); writeErr != nil {
 				return
 			}
+			relayTraffic.sent.Add(1)
 		}
 	}()
 
@@ -354,26 +414,30 @@ func RunSession(
 	hcancel()
 	<-handshakeSem
 
+	// These are observations, not proof of a server, network or key defect.
+	// Never include peer IP, packet contents or WRAP key in exported diagnostics.
+	traceSession(tp, sessionID, "dtls_transport", "observed", relayTraffic.summary(peer, tp.ObfsMode), time.Since(dtlsStarted))
 	if err != nil {
-		errStr := strings.ToLower(err.Error())
-		if useWrap && (strings.Contains(errStr, "deadline") || strings.Contains(errStr, "timeout")) {
+		if useWrap && isDTLSTimeout(err) {
+			stats.DTLSHandshakeTimeouts.Add(1)
 			traceSession(tp, sessionID, "dtls", "error", "DTLS handshake timed out", time.Since(dtlsStarted))
-			emitConnectionProgress("dtls", "warning", "DTLS timeout, повторяем подключение")
-			emitConnectionProgress("wrap", "warning", "WRAP не подтверждён")
+			emitConnectionProgress("dtls", "warning", "DTLS не подтвердился: проверьте peer, UDP и WRAP; причина пока неизвестна")
+			emitConnectionProgress("wrap", "warning", "WRAP не подтверждён сервером")
 			return false, &SessionError{
 				Type:    SessionErrorWrapTimeout,
 				Address: turnAddr,
-				Err:     fmt.Errorf("DTLS timeout через WRAP: peer не ответил: %w", err),
+				Err:     fmt.Errorf("DTLS timeout: подтверждение peer не получено (причина не установлена): %w", err),
 			}
 		}
 		traceSession(tp, sessionID, "dtls", "error", "DTLS handshake failed", time.Since(dtlsStarted))
-		emitConnectionProgress("dtls", "warning", "DTLS-сессия не установлена, повторяем")
+		emitConnectionProgress("dtls", "warning", "DTLS-сессия не установлена: проверьте диагностику")
 		return false, &SessionError{
-			Type:    SessionErrorAddressDead,
+			Type:    SessionErrorFatal,
 			Address: turnAddr,
-			Err:     fmt.Errorf("DTLS хендшейк: %w", err),
+			Err:     fmt.Errorf("DTLS handshake error (TURN status unconfirmed): %w", err),
 		}
 	}
+	stats.EverEstablished.Store(true)
 	emitConnectionProgress("dtls", "success", "DTLS-сессия установлена")
 	traceSession(tp, sessionID, "dtls", "success", "DTLS session established", time.Since(dtlsStarted))
 	emitConnectionProgress("workers", "running", "Запуск рабочих потоков")
