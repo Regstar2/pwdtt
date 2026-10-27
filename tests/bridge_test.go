@@ -3,14 +3,33 @@ package backend_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"pwdtt/backend"
 )
 
+// All test Bridges must stop and finish processing core events before
+// testing.T.TempDir() removes their journal directory. Windows refuses to
+// unlink an open session-*.log, unlike Unix.
 func newTestBridge(t *testing.T) *backend.Bridge {
 	t.Helper()
 	store := backend.NewTestStore(t)
-	return backend.NewBridge(context.Background(), store, func(name string, args ...any) {})
+	b := backend.NewBridge(context.Background(), store, func(name string, args ...any) {})
+	t.Cleanup(func() {
+		if !b.IsRunning() {
+			return
+		}
+		b.Disconnect()
+		deadline := time.Now().Add(10 * time.Second)
+		for b.IsRunning() {
+			if time.Now().After(deadline) {
+				t.Error("Bridge failed to stop and close its session log before TempDir cleanup")
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+	return b
 }
 
 // ═══════════════════════════════════════════════════
