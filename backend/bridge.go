@@ -76,6 +76,7 @@ func (b *Bridge) Connect(params ConnectParams) error {
 		Hashes:      hashes,
 		DeviceID:    deviceID,
 		Workers:     workers,
+		TurnTCP:     params.TurnTCP,
 		CaptchaMode: params.CaptchaMode,
 		ObfsMode:    params.ObfsMode,
 		Fingerprint: params.Fingerprint,

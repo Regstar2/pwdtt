@@ -6,6 +6,7 @@ type ConnectParams struct {
 	Hashes          []string `json:"hashes"`
 	DeviceID        string   `json:"deviceId,omitempty"`
 	Workers         int      `json:"workers,omitempty"`
+	TurnTCP         bool     `json:"turnTcp,omitempty"`
 	CaptchaMode     string   `json:"captchaMode,omitempty"`
 	ObfsMode        string   `json:"obfsMode,omitempty"`
 	Fingerprint     string   `json:"fingerprint,omitempty"`
@@ -55,6 +56,8 @@ type ProfileData struct {
 	PeerAddr   string        `json:"peer"`
 	Password   string        `json:"password"`
 	Hashes     []string      `json:"hashes"`
+	Workers    int           `json:"workers,omitempty"`
+	TurnTCP    bool          `json:"turn_tcp,omitempty"`
 	Listen     string        `json:"listen"`
 	TurnHost   string        `json:"turn"`
 	TurnPort   string        `json:"port"`

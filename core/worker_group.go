@@ -32,6 +32,8 @@ const (
 
 	// firstBatchSize — сколько воркеров запускаем в первой волне
 	firstBatchSize = 5
+
+	configRacerLimit = 3
 )
 
 func WorkerGroup(
@@ -158,6 +160,8 @@ func WorkerGroup(
 	var configRequestInFlight int32
 	var wg sync.WaitGroup
 	var credsMu sync.RWMutex
+	var refreshMu sync.Mutex
+	var credentialGeneration uint64
 
 	if signalCreds != nil {
 		go func() {
@@ -204,6 +208,7 @@ func WorkerGroup(
 			baseObfsMode := tp.ObfsMode
 			addressAttempts := 0
 			currentTurnAddr := ""
+			relayOffset := 0
 			workerObfsMode := baseObfsMode
 
 			for {
@@ -222,6 +227,8 @@ func WorkerGroup(
 				// Берём свежие креды
 				credsMu.RLock()
 				urls := cloneStringSlice(creds.TurnURLs)
+				wUser, wPass := creds.User, creds.Pass
+				generation := credentialGeneration
 				credsMu.RUnlock()
 
 				if len(urls) == 0 {
@@ -233,26 +240,16 @@ func WorkerGroup(
 					continue
 				}
 
-				// Фильтруем забаненные адреса
-				var available []string
-				for _, u := range urls {
-					if !GlobalBlacklist.IsBanned(u) {
-						available = append(available, u)
-					}
-				}
-
-				// Если все адреса забанены — спим и пробуем заново
-				if len(available) == 0 {
-					log.Printf("[ВОРКЕР #%d] Все TURN-адреса забанены (всего %d), спим %v",
-						wid, len(urls), sleepWhenAllBanned)
+				turnAddr, ok := selectTurnURL(urls, wid, relayOffset, GlobalBlacklist.IsBanned)
+				if !ok {
+					log.Printf("[ВОРКЕР #%d] Все TURN-адреса забанены, ожидание %v", wid, sleepWhenAllBanned)
 					select {
 					case <-time.After(sleepWhenAllBanned):
-					case <-ctx.Done():
+					case <-ctx.Done(): return
 					}
 					continue
 				}
 
-				turnAddr := selectTurnAddress(available, wid)
 				if turnAddr != currentTurnAddr {
 					currentTurnAddr = turnAddr
 					addressAttempts = 0
@@ -261,7 +258,7 @@ func WorkerGroup(
 
 				getConf := false
 				if shouldGetConfig && atomic.LoadInt32(&configSent) == 0 {
-					getConf = atomic.CompareAndSwapInt32(&configRequestInFlight, 0, 1)
+					getConf = tryAcquireConfigRacer(&configRequestInFlight)
 				}
 				var cc chan<- string
 				if getConf {
@@ -273,8 +270,8 @@ func WorkerGroup(
 					ctx, &sessionParams, peer, d, localPort,
 					getConf, cc, wid,
 					turnAddr,       // конкретный TURN-адрес
-					user,           // username из кредов (не меняется)
-					pass,           // password из кредов (не меняется)
+					wUser,          // credentials snapshot
+					wPass,
 					credStreamID,   // для handleAuthError
 					deviceID, password, stats,
 				)
@@ -283,7 +280,10 @@ func WorkerGroup(
 					if configDelivered {
 						atomic.StoreInt32(&configSent, 1)
 					} else {
-						atomic.StoreInt32(&configRequestInFlight, 0)
+						// Other racers can continue until a config is delivered.
+					}
+					atomic.AddInt32(&configRequestInFlight, -1)
+					if false {
 					}
 				}
 
@@ -312,6 +312,7 @@ func WorkerGroup(
 						case <-time.After(sleepAfterAddressDead):
 						case <-ctx.Done():
 						}
+						relayOffset++
 						// Продолжаем цикл — возьмём следующий доступный адрес
 						continue
 
@@ -329,19 +330,50 @@ func WorkerGroup(
 						// Увеличиваем счётчик попыток на этом адресе
 						addressAttempts++
 
-						// Если слишком много попыток на одном адресе — баним его
+						// DTLS/WRAP failure is peer-specific; rotate, never blacklist
+						// an otherwise healthy TURN allocation.
 						if addressAttempts >= maxAttemptsPerAddress {
-							if sessErr.Address != "" {
-								GlobalBlacklist.Ban(sessErr.Address)
-								log.Printf("[ВОРКЕР #%d] TURN-адрес %s забанен после %d попыток",
-									wid, sessErr.Address, addressAttempts)
-							}
+							relayOffset++
 							addressAttempts = 0
 							// Продолжаем цикл — возьмём следующий адрес
 							continue
 						}
 
 						// Пробуем тот же адрес с новой обфускацией
+						continue
+
+					case SessionErrorPermission:
+						// TURN relay is healthy; permission failure must not ban it.
+						relayOffset++
+						select {
+						case <-time.After(sleepAfterAddressDead):
+						case <-ctx.Done(): return
+						}
+						continue
+
+					case SessionErrorAuth:
+						// One worker refreshes credentials for the whole group; peers
+						// with an older snapshot reuse the updated generation.
+						refreshMu.Lock()
+						credsMu.RLock()
+						needRefresh := credentialGeneration == generation
+						credsMu.RUnlock()
+						if needRefresh {
+							u, p, addresses, err := getCredentials(ctx, hash, credStreamID)
+							if err == nil {
+								credsMu.Lock()
+								creds = &Credentials{User: u, Pass: p, TurnURLs: addresses, CacheStreamID: credStreamID}
+								credentialGeneration++
+								credsMu.Unlock()
+							} else {
+								log.Printf("[ВОРКЕР #%d] Не удалось обновить TURN credentials: kind=%s", wid, classifyVKAuthError(err))
+							}
+						}
+						refreshMu.Unlock()
+						select {
+						case <-time.After(2 * time.Second):
+						case <-ctx.Done(): return
+						}
 						continue
 
 					case SessionErrorFatal:
@@ -379,6 +411,27 @@ func WorkerGroup(
 
 	wg.Wait()
 	log.Printf("[ГРУППА #%d] Все воркеры группы завершились.", groupID)
+}
+
+func tryAcquireConfigRacer(inFlight *int32) bool {
+	for {
+		n := atomic.LoadInt32(inFlight)
+		if n >= configRacerLimit { return false }
+		if atomic.CompareAndSwapInt32(inFlight, n, n+1) { return true }
+	}
+}
+
+// selectTurnURL rotates relay selection without conflating peer/DTLS failures
+// with TURN allocation failures.
+func selectTurnURL(urls []string, workerID, offset int, isBanned func(string) bool) (string, bool) {
+	if len(urls) == 0 { return "", false }
+	start := (workerID - 1 + offset) % len(urls)
+	if start < 0 { start += len(urls) }
+	for i := 0; i < len(urls); i++ {
+		url := urls[(start+i)%len(urls)]
+		if !isBanned(url) { return url, true }
+	}
+	return "", false
 }
 
 func selectTurnAddress(available []string, workerID int) string {
@@ -447,6 +500,8 @@ type TurnParams struct {
 	Hashes   []string
 	WrapKey  []byte
 	ObfsMode string
+	TCPTransport bool
+	allocateGate *allocationGate
 	Trace    func(sessionID int, stage, state, message string, duration time.Duration)
 	// GetCredentials is a test seam; production uses GetCreds when nil.
 	GetCredentials func(context.Context, string, int) (string, string, []string, error)

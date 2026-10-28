@@ -392,6 +392,16 @@ func fetchVkCredsSerialized(ctx context.Context, link string, streamID int) (str
 	return fetchVkCreds(ctx, link, streamID)
 }
 
+// Only a typed VK Calls step-5 expiry permits replay of the short-lived
+// anonymous chain. Never replay CAPTCHA, rate-limit, call or network errors.
+func shouldRetryVKCallsOutdatedToken(err error) bool {
+	var failure *vkCallsFailure
+	return errors.As(err, &failure) &&
+		failure.Kind == vkCallsFailureOKCDN &&
+		strings.HasPrefix(failure.Step, "step5 ") &&
+		strings.Contains(strings.ToLower(failure.Error()), "error.webrtc.auth.anonym_token.outdated")
+}
+
 func fetchVkCreds(ctx context.Context, link string, streamID int) (string, string, []string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", "", nil, err
@@ -401,6 +411,18 @@ func fetchVkCreds(ctx context.Context, link string, streamID int) (string, strin
 	}
 	if getVKAuthMode() == "vkcalls" {
 		user, pass, addrs, err := getVKCredsViaVKCallsPath(ctx, link, streamID)
+		if shouldRetryVKCallsOutdatedToken(err) {
+			log.Printf("[STREAM %d] [VK Auth] Step 5 anonymous token expired; retry once", streamID)
+			select {
+			case <-ctx.Done(): return "", "", nil, ctx.Err()
+			case <-time.After(750 * time.Millisecond):
+			}
+			user, pass, addrs, err = getVKCredsViaVKCallsPath(ctx, link, streamID)
+			if err != nil {
+				// The second error, including another expiry, is final.
+				return "", "", nil, err
+			}
+		}
 		if err == nil {
 			log.Printf("[STREAM %d] [VK Auth] Success via VK Calls path", streamID)
 			return user, pass, addrs, nil
