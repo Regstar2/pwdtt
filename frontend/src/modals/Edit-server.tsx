@@ -3,7 +3,7 @@ import type React from 'react';
 import { IconCircleHalf2, IconHash, IconEye, IconEyeOff, IconX } from '@tabler/icons-react';
 import type { Server } from '../lib/types';
 import Hash from './Hash';
-import { SaveProfile, DeleteProfile } from '../../wailsjs/go/backend/App';
+import { SaveProfile, DeleteProfile, GetProfile } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import { toastStore } from '../lib/stores/toastStore';
 import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
@@ -56,21 +56,41 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
       turnTcp,
     };
     const hashPolicy = getServerVKHashPolicy(updated);
-    // Сначала сохраняем новый, потом удаляем старый
-    await SaveProfile(updated.name, backend.ProfileData.createFrom({
-      peer: updated.host,
-      password: updated.password,
-      hashes,
-      hash_policy: { mode: hashPolicy.mode, autoCheck: hashPolicy.autoCheck, autoReplace: hashPolicy.autoReplace },
-      workers: updated.power, turn_tcp: updated.turnTcp,
-      turn: '', port: '', device_id: updated.deviceId ?? '', listen: '',
-    })).catch(() => { toastStore.show('Ошибка сохранения', 3000); });
-    if (server.name !== updated.name) {
-      await DeleteProfile(server.name).catch(() => { toastStore.show('Ошибка удаления', 3000); });
+    try {
+      // Copy native-only fields when editing/renaming, including stable device ID,
+      // TURN overrides and local listen address.
+      let existing: backend.ProfileData | undefined;
+      try {
+        existing = await GetProfile(server.name);
+      } catch {
+        // Legacy profiles may exist only in localStorage.
+      }
+      await SaveProfile(updated.name, backend.ProfileData.createFrom({
+        peer: updated.host,
+        password: updated.password,
+        hashes,
+        hash_policy: { mode: hashPolicy.mode, autoCheck: hashPolicy.autoCheck, autoReplace: hashPolicy.autoReplace },
+        workers: updated.power, turn_tcp: updated.turnTcp,
+        turn: existing?.turn ?? '', port: existing?.port ?? '',
+        device_id: updated.deviceId ?? existing?.device_id ?? '',
+        listen: existing?.listen ?? '',
+      }));
+      const saved = await GetProfile(updated.name);
+      updated.deviceId = saved.device_id;
+      if (server.name !== updated.name) {
+        try {
+          await DeleteProfile(server.name);
+        } catch {
+          toastStore.show('Профиль сохранён, но старое имя не удалось удалить', 4000);
+        }
+      }
+      onSave(updated);
+      onClose();
+    } catch {
+      toastStore.show('Ошибка сохранения профиля', 3000);
+    } finally {
+      setSaving(false);
     }
-    onSave(updated);
-    setSaving(false);
-    onClose();
   };
 
   const handleDelete = async () => {

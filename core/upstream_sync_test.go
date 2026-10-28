@@ -60,3 +60,27 @@ func TestRetryOnlyVKCallsStepFiveOutdated(t *testing.T) {
     })}
     if err:=context.Canceled;shouldRetryVKCallsOutdatedToken(fmt.Errorf("cancel: %w",err)) {t.Fatal("cancel should not retry")}
 }
+
+func TestVKCallsOutdatedRetryAtMostOnce(t *testing.T) {
+    outdated := newVKCallsFailure("step5 vchat.joinConversationByLink", vkCallsFailureOKCDN,
+        errors.New("error.webrtc.auth.anonym_token.outdated"))
+    cases := []struct{name string; first, second error; wantCalls int; wantError bool}{
+        {"outdated then success",outdated,nil,2,false},
+        {"outdated again",outdated,outdated,2,true},
+        {"captcha",newVKCallsFailure("step5 vchat.joinConversationByLink",vkCallsFailureCaptcha,errors.New("CAPTCHA")),nil,1,true},
+        {"network",newVKCallsFailure("step5 vchat.joinConversationByLink",vkCallsFailureNetwork,errors.New("network")),nil,1,true},
+        {"fatal call",newVKCallsFailure("step5 vchat.joinConversationByLink",vkCallsFailureCall,errors.New("call unavailable")),nil,1,true},
+    }
+    for _,tt:=range cases {t.Run(tt.name,func(t *testing.T){
+        calls:=0
+        user,_,_,retried,err:=retryVKCallsOutdatedToken(context.Background(),0,func()(string,string,[]string,error){
+            calls++
+            if calls==1 {return "", "", nil, tt.first}
+            return "alice","pass",[]string{"127.0.0.1:3478"},tt.second
+        })
+        if calls!=tt.wantCalls || (err!=nil)!=tt.wantError || retried!=(tt.wantCalls==2) {
+            t.Fatalf("calls=%d retried=%v err=%v",calls,retried,err)
+        }
+        if err==nil && user!="alice" {t.Fatalf("success user=%q",user)}
+    })}
+}

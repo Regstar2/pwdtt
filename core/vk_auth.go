@@ -402,6 +402,36 @@ func shouldRetryVKCallsOutdatedToken(err error) bool {
 		strings.Contains(strings.ToLower(failure.Error()), "error.webrtc.auth.anonym_token.outdated")
 }
 
+// retryVKCallsOutdatedToken replays the anonymous flow at most once and
+// preserves context cancellation. The caller handles non-expiry fallback policy.
+func retryVKCallsOutdatedToken(
+    ctx context.Context,
+    delay time.Duration,
+    run func() (string, string, []string, error),
+) (user, pass string, addrs []string, retried bool, err error) {
+    user, pass, addrs, err = run()
+    if !shouldRetryVKCallsOutdatedToken(err) {
+        return user, pass, addrs, false, err
+    }
+    if err := ctx.Err(); err != nil {
+        return "", "", nil, false, err
+    }
+    if delay > 0 {
+        timer := time.NewTimer(delay)
+        defer timer.Stop()
+        select {
+        case <-timer.C:
+        case <-ctx.Done():
+            return "", "", nil, false, ctx.Err()
+        }
+    }
+    if err := ctx.Err(); err != nil {
+        return "", "", nil, false, err
+    }
+    user, pass, addrs, err = run()
+    return user, pass, addrs, true, err
+}
+
 func fetchVkCreds(ctx context.Context, link string, streamID int) (string, string, []string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", "", nil, err
@@ -410,18 +440,12 @@ func fetchVkCreds(ctx context.Context, link string, streamID int) (string, strin
 		return "", "", nil, errVKCaptchaWait
 	}
 	if getVKAuthMode() == "vkcalls" {
-		user, pass, addrs, err := getVKCredsViaVKCallsPath(ctx, link, streamID)
-		if shouldRetryVKCallsOutdatedToken(err) {
-			log.Printf("[STREAM %d] [VK Auth] Step 5 anonymous token expired; retry once", streamID)
-			select {
-			case <-ctx.Done(): return "", "", nil, ctx.Err()
-			case <-time.After(750 * time.Millisecond):
-			}
-			user, pass, addrs, err = getVKCredsViaVKCallsPath(ctx, link, streamID)
-			if err != nil {
-				// The second error, including another expiry, is final.
-				return "", "", nil, err
-			}
+		user, pass, addrs, retried, err := retryVKCallsOutdatedToken(ctx, 750*time.Millisecond, func() (string, string, []string, error) {
+			return getVKCredsViaVKCallsPath(ctx, link, streamID)
+		})
+		if retried {
+			log.Printf("[STREAM %d] [VK Auth] Step 5 anonymous token expired; retried once", streamID)
+			if err != nil { return "", "", nil, err }
 		}
 		if err == nil {
 			log.Printf("[STREAM %d] [VK Auth] Success via VK Calls path", streamID)

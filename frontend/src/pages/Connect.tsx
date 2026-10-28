@@ -190,7 +190,22 @@ export default function Connect() {
       let changed = false;
 
       for (const [name, profile] of Object.entries(profiles)) {
-        if (existingNames.has(name)) continue;
+        if (existingNames.has(name)) {
+          const current = serverStore.getAll().find(s => s.name === name);
+          if (current) {
+            const refreshed = {
+              ...current,
+              deviceId: profile.device_id || current.deviceId,
+              power: profile.workers || current.power,
+              turnTcp: profile.turn_tcp ?? current.turnTcp,
+            };
+            if (JSON.stringify(current) !== JSON.stringify(refreshed)) {
+              serverStore.update(refreshed);
+              changed = true;
+            }
+          }
+          continue;
+        }
         const host = profile.peer || '';
         if (!host || existingHosts.has(host)) continue;
         const hashes: [string, string, string, string] = [
@@ -217,7 +232,7 @@ export default function Connect() {
       if (changed) {
         const all = serverStore.getAll();
         setServers(all);
-        setSelected(previous => previous ?? all[0] ?? null);
+        setSelected(previous => all.find(item => item.id === previous?.id) ?? all[0] ?? null);
       }
     }).catch(() => {});
   }, []);
@@ -264,7 +279,9 @@ export default function Connect() {
       toastStore.show(`Профиль добавлен: ${name}`, 3000);
     };
 
-    void applyLink();
+    void applyLink().catch(() => {
+      toastStore.show('Не удалось импортировать профиль', 4000);
+    });
   }), []);
 
   const doConnect = async () => {

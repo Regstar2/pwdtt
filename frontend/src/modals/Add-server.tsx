@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { IconCircleHalf2, IconEye, IconEyeOff, IconX, IconHash } from '@tabler/icons-react';
 import type { Server } from '../lib/types';
-import { SaveProfile } from '../../wailsjs/go/backend/App';
+import { SaveProfile, GetProfile } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import { parseWdttUrl } from '../lib/utils/wdttLink';
 import Hash from './Hash';
+import { toastStore } from '../lib/stores/toastStore';
 
 interface Props {
   onClose: () => void;
@@ -71,13 +72,19 @@ export default function AddServer({ onClose, onAdd }: Props) {
         workers: power, turn_tcp: turnTcp,
         turn: '', port: '', device_id: '', listen: '',
       }));
-    } catch (e) {
-      console.warn('SaveProfile failed:', e);
+      const persisted = await GetProfile(name.trim());
+      onAdd({
+        name: name.trim(), host, password, hashes, power, turnTcp,
+        deviceId: persisted.device_id,
+        hashMode: 'local', hashAutoCheck: true, hashAutoReplace: false,
+      });
+      onClose();
+    } catch {
+      // Do not publish a local-only profile after a failed native write.
+      toastStore.show('Не удалось сохранить профиль', 3000);
+    } finally {
+      setSaving(false);
     }
-
-    onAdd({ name: name.trim(), host, password, hashes, power, turnTcp, hashMode: 'local', hashAutoCheck: true, hashAutoReplace: false });
-    setSaving(false);
-    onClose();
   };
 
   return (
