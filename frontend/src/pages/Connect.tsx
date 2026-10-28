@@ -13,7 +13,7 @@ import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { MeasureLatency, SaveProfile } from '../../wailsjs/go/backend/App';
+import { MeasureLatency, SaveProfile, GetProfile } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import type { Server, TunnelState, VKHashMode } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles } from '../../wailsjs/go/backend/App';
@@ -264,12 +264,15 @@ export default function Connect() {
         listen: '',
       }));
 
+      const persisted = await GetProfile(name);
       const server = serverStore.add({
         name,
         host: consumed.host,
         password: consumed.password,
         hashes: padded,
         power: consumed.workers,
+        deviceId: persisted.device_id,
+        turnTcp: persisted.turn_tcp,
       });
       setServers(serverStore.getAll());
       setSelected({ ...server });

@@ -46,6 +46,9 @@ export default function AddServer({ onClose, onAdd }: Props) {
       setHashes(h4);
       const filled = h4.filter(x => x.trim()).length;
       setPower(parsed.workers ?? Math.max(9, filled * 9));
+    } else if (parsed.workers !== undefined) {
+      // The link can specify worker count before hashes are entered.
+      setPower(parsed.workers);
     }
   };
 

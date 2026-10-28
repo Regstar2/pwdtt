@@ -30,5 +30,12 @@ end-to-end test or Windows GUI smoke is claimed.
   allocation, permission and bidirectional datagrams over both transports.
 * VK: pure fixture tests cover expiry retry boundedness and nonretryable errors.
 * Profiles: Go store round-trip plus TypeScript localStorage / qwdtt checks.
+* Native qwdtt import reads the persisted device ID before first connection.
 
 This work does not imply completion of issues #51, #53, #54, #55 or #61.
+
+
+### Один запуск проверки на Windows
+
+В PowerShell 7 из корня репозитория: `pwsh -NoProfile -File .\\scripts\\verify-issue58.ps1`.
+Скрипт собирает логи и summary.json в ZIP в `$env:TEMP`, запускает Go root/core, доступные race-tests, npm и Wails build. Не создаёт GitHub Actions, не читает конфигурационные профили и не выполняет сетевое E2E с VK/VPS. `NOT_RUN` для отсутствующего инструмента не считается PASS.

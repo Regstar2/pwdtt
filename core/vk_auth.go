@@ -409,6 +409,9 @@ func retryVKCallsOutdatedToken(
     delay time.Duration,
     run func() (string, string, []string, error),
 ) (user, pass string, addrs []string, retried bool, err error) {
+    if err := ctx.Err(); err != nil {
+        return "", "", nil, false, err
+    }
     user, pass, addrs, err = run()
     if !shouldRetryVKCallsOutdatedToken(err) {
         return user, pass, addrs, false, err

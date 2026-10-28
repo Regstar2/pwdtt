@@ -17,6 +17,12 @@ describe('parseWdttUrl', () => {
     expect(link!.port).toBe('9000');
   });
 
+  it('сохраняет workers из ссылки даже без хешей', () => {
+    const link = parseWdttUrl('qwdtt://config?peer=example.com:56000&pass=x&workers=18');
+    expect(link?.hashes).toEqual([]);
+    expect(link?.workers).toBe(18);
+  });
+
   it('без хешей', () => {
     const url = 'qwdtt://config?peer=1.2.3.4:5555&pass=secret';
     const link = parseWdttUrl(url);
