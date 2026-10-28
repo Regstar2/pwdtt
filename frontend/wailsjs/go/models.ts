@@ -5,6 +5,7 @@ export namespace backend {
     hashes: string[];
     deviceId?: string;
     workers?: number;
+    turnTcp?: boolean;
     captchaMode?: string;
     obfsMode?: string;
     fingerprint?: string;
@@ -22,6 +23,7 @@ export namespace backend {
       this.hashes = source["hashes"];
       this.deviceId = source["deviceId"];
       this.workers = source["workers"];
+      this.turnTcp = source["turnTcp"];
       this.captchaMode = source["captchaMode"];
       this.obfsMode = source["obfsMode"];
       this.fingerprint = source["fingerprint"];
@@ -80,6 +82,8 @@ export namespace backend {
     peer: string;
     password: string;
     hashes: string[];
+    workers?: number;
+    turn_tcp?: boolean;
     listen: string;
     turn: string;
     port: string;
@@ -91,6 +95,8 @@ export namespace backend {
       this.peer = source["peer"];
       this.password = source["password"];
       this.hashes = source["hashes"];
+      this.workers = source["workers"];
+      this.turn_tcp = source["turn_tcp"];
       this.listen = source["listen"];
       this.turn = source["turn"];
       this.port = source["port"];

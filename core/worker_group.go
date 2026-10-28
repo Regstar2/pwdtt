@@ -279,12 +279,8 @@ func WorkerGroup(
 				if getConf {
 					if configDelivered {
 						atomic.StoreInt32(&configSent, 1)
-					} else {
-						// Other racers can continue until a config is delivered.
 					}
 					atomic.AddInt32(&configRequestInFlight, -1)
-					if false {
-					}
 				}
 
 				// Обработка ошибок
