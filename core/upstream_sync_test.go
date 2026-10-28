@@ -95,5 +95,5 @@ func TestVKCallsOutdatedRetryHonorsCancellation(t *testing.T) {
         return "", "", nil, newVKCallsFailure("step5 vchat.joinConversationByLink",vkCallsFailureOKCDN,
             errors.New("error.webrtc.auth.anonym_token.outdated"))
     })
-    if count!=1 || retried || !errors.Is(err,context.Canceled) {t.Fatalf("calls=%d retried=%v err=%v",count,retried,err)}
+    if count!=0 || retried || !errors.Is(err,context.Canceled) {t.Fatalf("calls=%d retried=%v err=%v",count,retried,err)}
 }

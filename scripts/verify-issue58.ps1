@@ -50,8 +50,11 @@ try {
         (& go version) | Out-File (Join-Path $dir 'go-version.txt') -Encoding utf8
         Invoke-Check -Name 'go-root' -Directory $root -Executable 'go' -Arguments @('test','-count=1','./...')
         Invoke-Check -Name 'go-core' -Directory (Join-Path $root 'core') -Executable 'go' -Arguments @('test','-count=1','./...')
-        if (Test-Available 'gcc') {
+        if (Get-Command 'gcc' -ErrorAction SilentlyContinue) {
             Invoke-Check -Name 'go-core-race' -Directory (Join-Path $root 'core') -Executable 'go' -Arguments @('test','-race','-count=1','./...')
+        } else {
+            $results.Add([pscustomobject]@{ Name='go-core-race'; Status='SKIPPED_OPTIONAL'; ExitCode=$null })
+            Write-Host '[SKIPPED_OPTIONAL] gcc unavailable (race detector)'
         }
     }
     if (Test-Available 'npm') {
@@ -77,7 +80,7 @@ try {
     $zip = "$dir.zip"
     Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip -Force
     Write-Host "Evidence ZIP: $zip"
-    if (@($results | Where-Object Status -ne 'PASS').Count -gt 0) {
+    if (@($results | Where-Object { $_.Status -notin @('PASS','SKIPPED_OPTIONAL') }).Count -gt 0) {
         Write-Host 'Validation incomplete. Examine summary.json and logs in the ZIP.'
         exit 1
     }
