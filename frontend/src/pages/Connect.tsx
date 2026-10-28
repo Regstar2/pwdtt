@@ -13,7 +13,7 @@ import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { getServerVKHashPolicy } from '../lib/utils/vkHashPolicy';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { MeasureLatency, SaveProfile } from '../../wailsjs/go/backend/App';
+import { MeasureLatency, SaveProfile, GetProfile } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import type { Server, TunnelState, VKHashMode } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles } from '../../wailsjs/go/backend/App';
@@ -190,7 +190,22 @@ export default function Connect() {
       let changed = false;
 
       for (const [name, profile] of Object.entries(profiles)) {
-        if (existingNames.has(name)) continue;
+        if (existingNames.has(name)) {
+          const current = serverStore.getAll().find(s => s.name === name);
+          if (current) {
+            const refreshed = {
+              ...current,
+              deviceId: profile.device_id || current.deviceId,
+              power: profile.workers || current.power,
+              turnTcp: profile.turn_tcp ?? current.turnTcp,
+            };
+            if (JSON.stringify(current) !== JSON.stringify(refreshed)) {
+              serverStore.update(refreshed);
+              changed = true;
+            }
+          }
+          continue;
+        }
         const host = profile.peer || '';
         if (!host || existingHosts.has(host)) continue;
         const hashes: [string, string, string, string] = [
@@ -207,6 +222,9 @@ export default function Connect() {
           hashMode: (profile.hash_policy?.mode as VKHashMode | undefined) ?? 'local',
           hashAutoCheck: profile.hash_policy?.autoCheck ?? true,
           hashAutoReplace: profile.hash_policy?.autoReplace ?? false,
+          power: profile.workers || undefined,
+          turnTcp: profile.turn_tcp ?? false,
+          deviceId: profile.device_id || undefined,
         });
         changed = true;
       }
@@ -214,7 +232,7 @@ export default function Connect() {
       if (changed) {
         const all = serverStore.getAll();
         setServers(all);
-        setSelected(previous => previous ?? all[0] ?? null);
+        setSelected(previous => all.find(item => item.id === previous?.id) ?? all[0] ?? null);
       }
     }).catch(() => {});
   }, []);
@@ -238,18 +256,23 @@ export default function Connect() {
         peer: consumed.host,
         password: consumed.password,
         hashes: hashes as unknown as string[],
+        workers: consumed.workers,
+        turn_tcp: false,
         turn: '',
         port: consumed.port || '',
         device_id: '',
         listen: '',
       }));
 
+      const persisted = await GetProfile(name);
       const server = serverStore.add({
         name,
         host: consumed.host,
         password: consumed.password,
         hashes: padded,
         power: consumed.workers,
+        deviceId: persisted.device_id,
+        turnTcp: persisted.turn_tcp,
       });
       setServers(serverStore.getAll());
       setSelected({ ...server });
@@ -259,7 +282,9 @@ export default function Connect() {
       toastStore.show(`Профиль добавлен: ${name}`, 3000);
     };
 
-    void applyLink();
+    void applyLink().catch(() => {
+      toastStore.show('Не удалось импортировать профиль', 4000);
+    });
   }), []);
 
   const doConnect = async () => {
@@ -286,6 +311,7 @@ export default function Connect() {
         hashes,
         deviceId: current.deviceId,
         workers,
+        turnTcp: current.turnTcp ?? false,
         captchaMode: 'auto',
         obfsMode: settingsStore.get().obfsMode || 'audio',
         profileName: current.name,

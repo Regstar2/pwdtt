@@ -10,6 +10,7 @@ export interface Server {
   icon?: string;
   hashes?: [string, string, string, string];
   power?: number;
+  turnTcp?: boolean;
   hashMode?: VKHashMode;
   hashAutoCheck?: boolean;
   hashAutoReplace?: boolean;

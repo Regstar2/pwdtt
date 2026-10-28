@@ -39,6 +39,10 @@ const (
 	SessionErrorAddressDead SessionErrorType = "ADDRESS_DEAD"
 	// WRAP_TIMEOUT — DTLS-рукопожатие не прошло, нужно сменить обфускацию
 	SessionErrorWrapTimeout SessionErrorType = "WRAP_TIMEOUT"
+	// AUTH — TURN credentials were rejected; refresh without banning relay.
+	SessionErrorAuth SessionErrorType = "AUTH"
+	// PERMISSION — relay was allocated, but permission for peer failed.
+	SessionErrorPermission SessionErrorType = "PERMISSION"
 	// FATAL — невосстановимая ошибка (FATAL_AUTH, хеш мёртв и т.д.)
 	SessionErrorFatal SessionErrorType = "FATAL"
 )
@@ -125,29 +129,20 @@ func RunSession(
 	}
 	turnAddrResolved := net.JoinHostPort(urlhost, urlport)
 
-	resolved, err := net.ResolveUDPAddr("udp", turnAddrResolved)
+	turnConn, err := dialTURNConn(ctx, turnAddrResolved, tp.TCPTransport)
 	if err != nil {
 		return false, &SessionError{
-			Type:    SessionErrorAddressDead,
-			Address: turnAddr,
-			Err:     fmt.Errorf("резолв TURN: %w", err),
+			Type: SessionErrorAddressDead, Address: turnAddr,
+			Err: err,
 		}
 	}
+	defer turnConn.Close()
+	stopTURN := context.AfterFunc(ctx, func() { _ = turnConn.Close() })
+	defer stopTURN()
 
-	c, err := net.DialUDP("udp", nil, resolved)
-	if err != nil {
-		return false, &SessionError{
-			Type:    SessionErrorAddressDead,
-			Address: turnAddr,
-			Err:     fmt.Errorf("подключение TURN UDP: %w", err),
-		}
-	}
-	defer c.Close()
-	_ = c.SetReadBuffer(socketBufSize)
-	_ = c.SetWriteBuffer(socketBufSize)
-	var turnConn net.PacketConn = &connectedUDPConn{c}
-
-	log.Printf("[СЕССИЯ #%d] TURN UDP (%s)", sessionID, turnAddr)
+	transport := "UDP"
+	if tp.TCPTransport { transport = "TCP" }
+	log.Printf("[СЕССИЯ #%d] TURN %s", sessionID, transport)
 
 	var addrFamily turn.RequestedAddressFamily
 	if peer.IP.To4() != nil {
@@ -182,6 +177,11 @@ func RunSession(
 		}
 	}
 
+	if tp.allocateGate != nil {
+		if err := tp.allocateGate.Wait(ctx); err != nil {
+			return false, &SessionError{Type: SessionErrorFatal, Err: fmt.Errorf("TURN Allocate pacing: %w", err)}
+		}
+	}
 	turnStarted := time.Now()
 	emitConnectionProgress("turn", "running", "Выделение TURN relay")
 	traceSession(tp, sessionID, "turn", "running", "TURN Allocate", 0)
@@ -190,6 +190,7 @@ func RunSession(
 		traceSession(tp, sessionID, "turn", "error", "TURN Allocate failed", time.Since(turnStarted))
 		if isAuthError(err) {
 			handleAuthError(cacheStreamID)
+			return false, &SessionError{Type: SessionErrorAuth, Address: turnAddr, Err: fmt.Errorf("TURN Allocate: %w", err)}
 		}
 
 		return false, &SessionError{
@@ -204,13 +205,27 @@ func RunSession(
 
 	getStreamCache(cacheStreamID).errorCount.Store(0)
 
-	log.Printf("[СЕССИЯ #%d] Relay: %s", sessionID, relay.LocalAddr())
+	// Permission must succeed before WRAP/DTLS; a peer-specific failure is not
+	// evidence that the allocated TURN relay is dead.
+	permissionStarted := time.Now()
+	traceSession(tp, sessionID, "permission", "running", "TURN CreatePermission", 0)
+	if err := ctx.Err(); err != nil {
+		return false, &SessionError{Type: SessionErrorFatal, Err: err}
+	}
+	if err := tc.CreatePermission(peer); err != nil {
+		traceSession(tp, sessionID, "permission", "error", "TURN permission failed", time.Since(permissionStarted))
+		if isAuthError(err) {
+			handleAuthError(cacheStreamID)
+			return false, &SessionError{Type: SessionErrorAuth, Address: turnAddr, Err: fmt.Errorf("TURN permission auth: %w", err)}
+		}
+		return false, &SessionError{Type: SessionErrorPermission, Address: turnAddr, Err: fmt.Errorf("TURN permission: %w", err)}
+	}
+	traceSession(tp, sessionID, "permission", "success", "TURN permission ready", time.Since(permissionStarted))
 
 	pipeA, pipeB := connutil.AsyncPacketPipe()
 
 	sessCtx, sessCancel := context.WithCancel(ctx)
-	defer sessCancel()
-
+	// Cancel session before disabling its deadline-closing AfterFunc.
 	var sessionWg sync.WaitGroup
 	sessionWg.Add(1)
 	go func() {
@@ -249,6 +264,7 @@ func RunSession(
 		_ = pipeA.SetDeadline(time.Now())
 	})
 	defer stopRelay()
+	defer sessCancel()
 
 	go func() {
 		defer relayWg.Done()

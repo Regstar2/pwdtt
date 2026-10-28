@@ -61,6 +61,7 @@ type Config struct {
 	Listen      string   // локальный адрес (default 127.0.0.1:9000)
 	TurnHost    string   // переопределение IP TURN
 	TurnPort    string   // переопределение порта TURN
+	TurnTCP     bool     // transport to TURN server (not DTLS peer)
 	CaptchaMode string   // auto/rjs/wv
 	ObfsMode    string   // audio/video
 	Fingerprint string   // chrome/android/ios/safari/firefox
@@ -216,6 +217,8 @@ func (c *Core) start() error {
 		Hashes:   c.cfg.Hashes,
 		WrapKey:  wrapKey,
 		ObfsMode: c.cfg.ObfsMode,
+		TCPTransport: c.cfg.TurnTCP,
+		allocateGate: newAllocationGate(100 * time.Millisecond),
 	}
 	tp.Trace = func(sessionID int, stage, state, message string, duration time.Duration) {
 		c.emitDiagnostic("DEBUG", "CORE", stage, state, message, sessionID, duration)

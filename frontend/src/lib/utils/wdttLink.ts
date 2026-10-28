@@ -42,7 +42,9 @@ function parseQwdttConfig(raw: string): WdttLink | null {
   if (!peer || !pass) return null;
 
   const hashes = hashesStr.split(',').map(h => h.trim()).filter(Boolean);
-  const workers = workersStr ? parseInt(workersStr, 10) : undefined;
+  const count = workersStr.trim();
+  const n = /^\d+$/.test(count) ? Number(count) : undefined;
+  const workers = n !== undefined && Number.isSafeInteger(n) && n >= 9 && n <= 108 && n % 9 === 0 ? n : undefined;
 
   return { name, host: peer, password: pass, hashes, workers, port };
 }

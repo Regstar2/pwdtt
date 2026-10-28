@@ -17,6 +17,12 @@ describe('parseWdttUrl', () => {
     expect(link!.port).toBe('9000');
   });
 
+  it('сохраняет workers из ссылки даже без хешей', () => {
+    const link = parseWdttUrl('qwdtt://config?peer=example.com:56000&pass=x&workers=18');
+    expect(link?.hashes).toEqual([]);
+    expect(link?.workers).toBe(18);
+  });
+
   it('без хешей', () => {
     const url = 'qwdtt://config?peer=1.2.3.4:5555&pass=secret';
     const link = parseWdttUrl(url);
@@ -55,6 +61,17 @@ describe('parseWdttUrl', () => {
 
     expect(link).not.toBeNull();
     expect(link!.host).toBe('1.2.3.4:5555');
+  });
+
+  it('rejects malformed and unsupported worker counts', () => {
+    for (const value of ['18garbage', '18.5', '-9', '0', '8', '109', '20', '9000000000000000000']) {
+      const link = parseWdttUrl('qwdtt://config?peer=1.2.3.4:56000&pass=x&workers=' + value);
+      expect(link?.workers, value).toBeUndefined();
+    }
+    for (const count of [9, 18, 54, 108]) {
+      const link = parseWdttUrl('qwdtt://config?peer=1.2.3.4:56000&pass=x&workers=' + count);
+      expect(link?.workers).toBe(count);
+    }
   });
 
   // ── wdtt:// legacy формат ──

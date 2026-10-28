@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { IconCircleHalf2, IconEye, IconEyeOff, IconX, IconHash } from '@tabler/icons-react';
 import type { Server } from '../lib/types';
-import { SaveProfile } from '../../wailsjs/go/backend/App';
+import { SaveProfile, GetProfile } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import { parseWdttUrl } from '../lib/utils/wdttLink';
 import Hash from './Hash';
+import { toastStore } from '../lib/stores/toastStore';
 
 interface Props {
   onClose: () => void;
@@ -22,8 +23,9 @@ export default function AddServer({ onClose, onAdd }: Props) {
   const [hashOpen, setHashOpen] = useState(false);
 
   const filledHashes = hashes.filter(h => h.trim()).length;
-  const powerMax = Math.max(9, filledHashes * 27);
   const [power, setPower] = useState(9);
+  const powerMax = Math.max(9, filledHashes * 27, power);
+  const [turnTcp, setTurnTcp] = useState(false);
 
   const applyLink = (raw: string) => {
     setLink(raw);
@@ -43,7 +45,10 @@ export default function AddServer({ onClose, onAdd }: Props) {
       const h4: [string,string,string,string] = [parsed.hashes[0]??'', parsed.hashes[1]??'', parsed.hashes[2]??'', parsed.hashes[3]??''];
       setHashes(h4);
       const filled = h4.filter(x => x.trim()).length;
-      setPower(Math.max(9, filled * 9));
+      setPower(parsed.workers ?? Math.max(9, filled * 9));
+    } else if (parsed.workers !== undefined) {
+      // The link can specify worker count before hashes are entered.
+      setPower(parsed.workers);
     }
   };
 
@@ -67,15 +72,22 @@ export default function AddServer({ onClose, onAdd }: Props) {
         password,
         hashes,
         hash_policy: { mode: 'local', autoCheck: true, autoReplace: false },
+        workers: power, turn_tcp: turnTcp,
         turn: '', port: '', device_id: '', listen: '',
       }));
-    } catch (e) {
-      console.warn('SaveProfile failed:', e);
+      const persisted = await GetProfile(name.trim());
+      onAdd({
+        name: name.trim(), host, password, hashes, power, turnTcp,
+        deviceId: persisted.device_id,
+        hashMode: 'local', hashAutoCheck: true, hashAutoReplace: false,
+      });
+      onClose();
+    } catch {
+      // Do not publish a local-only profile after a failed native write.
+      toastStore.show('Не удалось сохранить профиль', 3000);
+    } finally {
+      setSaving(false);
     }
-
-    onAdd({ name: name.trim(), host, password, hashes, power, hashMode: 'local', hashAutoCheck: true, hashAutoReplace: false });
-    setSaving(false);
-    onClose();
   };
 
   return (
@@ -145,6 +157,8 @@ export default function AddServer({ onClose, onAdd }: Props) {
               aria-label="Мощность"
             />
           </div>
+
+          <label style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={turnTcp} onChange={e => setTurnTcp(e.target.checked)} />TURN через TCP (по умолчанию UDP)</label>
 
           <button type="button" className="as-hash-btn" onClick={() => setHashOpen(true)}>
             <IconHash stroke={2} size={16} />

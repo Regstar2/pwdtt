@@ -57,6 +57,15 @@ describe('serverStore', () => {
     expect(all[0].host).toBe('2.2.2.2:2222');
   });
 
+  it('сохраняет 18 воркеров и TURN TCP между чтениями', () => {
+    const server = serverStore.add({
+      name: 'example', host: 'example.org:56000', password: 'pw', power: 18, turnTcp: true,
+    });
+    const found = serverStore.getAll().find(s => s.id === server.id);
+    expect(found?.power).toBe(18);
+    expect(found?.turnTcp).toBe(true);
+  });
+
   it('remove: удаление по id', () => {
     const s1 = serverStore.add({ name: 'A', host: 'a:1', password: 'p1' });
     const s2 = serverStore.add({ name: 'B', host: 'b:2', password: 'p2' });
