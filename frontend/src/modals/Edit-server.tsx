@@ -32,6 +32,7 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
   const filledHashes = hashes.filter(h => h.trim()).length;
   const powerMax = Math.max(9, filledHashes * 27);
   const [power, setPower] = useState<number>(server.power ?? Math.max(9, filledHashes * 9));
+  const [turnTcp, setTurnTcp] = useState(server.turnTcp ?? false);
 
   const handleHashSave = (h: [string, string, string, string]) => {
     setHashes(h);
@@ -52,6 +53,7 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
       password,
       hashes,
       power,
+      turnTcp,
     };
     const hashPolicy = getServerVKHashPolicy(updated);
     // Сначала сохраняем новый, потом удаляем старый
@@ -60,7 +62,8 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
       password: updated.password,
       hashes,
       hash_policy: { mode: hashPolicy.mode, autoCheck: hashPolicy.autoCheck, autoReplace: hashPolicy.autoReplace },
-      turn: '', port: '', device_id: '', listen: '',
+      workers: updated.power, turn_tcp: updated.turnTcp,
+      turn: '', port: '', device_id: updated.deviceId ?? '', listen: '',
     })).catch(() => { toastStore.show('Ошибка сохранения', 3000); });
     if (server.name !== updated.name) {
       await DeleteProfile(server.name).catch(() => { toastStore.show('Ошибка удаления', 3000); });
@@ -135,6 +138,8 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
               aria-label="Мощность"
             />
           </div>
+
+          <label style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={turnTcp} onChange={e => setTurnTcp(e.target.checked)} />TURN через TCP (по умолчанию UDP)</label>
 
           <button
             type="button"

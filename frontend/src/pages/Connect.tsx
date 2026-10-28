@@ -207,6 +207,9 @@ export default function Connect() {
           hashMode: (profile.hash_policy?.mode as VKHashMode | undefined) ?? 'local',
           hashAutoCheck: profile.hash_policy?.autoCheck ?? true,
           hashAutoReplace: profile.hash_policy?.autoReplace ?? false,
+          power: profile.workers || undefined,
+          turnTcp: profile.turn_tcp ?? false,
+          deviceId: profile.device_id || undefined,
         });
         changed = true;
       }
@@ -238,6 +241,8 @@ export default function Connect() {
         peer: consumed.host,
         password: consumed.password,
         hashes: hashes as unknown as string[],
+        workers: consumed.workers,
+        turn_tcp: false,
         turn: '',
         port: consumed.port || '',
         device_id: '',
@@ -286,6 +291,7 @@ export default function Connect() {
         hashes,
         deviceId: current.deviceId,
         workers,
+        turnTcp: current.turnTcp ?? false,
         captchaMode: 'auto',
         obfsMode: settingsStore.get().obfsMode || 'audio',
         profileName: current.name,

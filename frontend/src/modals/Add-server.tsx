@@ -24,6 +24,7 @@ export default function AddServer({ onClose, onAdd }: Props) {
   const filledHashes = hashes.filter(h => h.trim()).length;
   const powerMax = Math.max(9, filledHashes * 27);
   const [power, setPower] = useState(9);
+  const [turnTcp, setTurnTcp] = useState(false);
 
   const applyLink = (raw: string) => {
     setLink(raw);
@@ -43,7 +44,7 @@ export default function AddServer({ onClose, onAdd }: Props) {
       const h4: [string,string,string,string] = [parsed.hashes[0]??'', parsed.hashes[1]??'', parsed.hashes[2]??'', parsed.hashes[3]??''];
       setHashes(h4);
       const filled = h4.filter(x => x.trim()).length;
-      setPower(Math.max(9, filled * 9));
+      setPower(parsed.workers ?? Math.max(9, filled * 9));
     }
   };
 
@@ -67,13 +68,14 @@ export default function AddServer({ onClose, onAdd }: Props) {
         password,
         hashes,
         hash_policy: { mode: 'local', autoCheck: true, autoReplace: false },
+        workers: power, turn_tcp: turnTcp,
         turn: '', port: '', device_id: '', listen: '',
       }));
     } catch (e) {
       console.warn('SaveProfile failed:', e);
     }
 
-    onAdd({ name: name.trim(), host, password, hashes, power, hashMode: 'local', hashAutoCheck: true, hashAutoReplace: false });
+    onAdd({ name: name.trim(), host, password, hashes, power, turnTcp, hashMode: 'local', hashAutoCheck: true, hashAutoReplace: false });
     setSaving(false);
     onClose();
   };
@@ -145,6 +147,8 @@ export default function AddServer({ onClose, onAdd }: Props) {
               aria-label="Мощность"
             />
           </div>
+
+          <label style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={turnTcp} onChange={e => setTurnTcp(e.target.checked)} />TURN через TCP (по умолчанию UDP)</label>
 
           <button type="button" className="as-hash-btn" onClick={() => setHashOpen(true)}>
             <IconHash stroke={2} size={16} />
