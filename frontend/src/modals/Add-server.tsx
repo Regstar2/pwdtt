@@ -23,8 +23,8 @@ export default function AddServer({ onClose, onAdd }: Props) {
   const [hashOpen, setHashOpen] = useState(false);
 
   const filledHashes = hashes.filter(h => h.trim()).length;
-  const powerMax = Math.max(9, filledHashes * 27);
   const [power, setPower] = useState(9);
+  const powerMax = Math.max(9, filledHashes * 27, power);
   const [turnTcp, setTurnTcp] = useState(false);
 
   const applyLink = (raw: string) => {

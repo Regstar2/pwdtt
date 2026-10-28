@@ -214,6 +214,10 @@ func RunSession(
 	}
 	if err := tc.CreatePermission(peer); err != nil {
 		traceSession(tp, sessionID, "permission", "error", "TURN permission failed", time.Since(permissionStarted))
+		if isAuthError(err) {
+			handleAuthError(cacheStreamID)
+			return false, &SessionError{Type: SessionErrorAuth, Address: turnAddr, Err: fmt.Errorf("TURN permission auth: %w", err)}
+		}
 		return false, &SessionError{Type: SessionErrorPermission, Address: turnAddr, Err: fmt.Errorf("TURN permission: %w", err)}
 	}
 	traceSession(tp, sessionID, "permission", "success", "TURN permission ready", time.Since(permissionStarted))

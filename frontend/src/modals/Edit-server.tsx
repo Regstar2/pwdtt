@@ -30,8 +30,8 @@ export default function EditServer({ server, onClose, onSave, onDelete }: Props)
   const [hashOpen, setHashOpen] = useState(false);
 
   const filledHashes = hashes.filter(h => h.trim()).length;
-  const powerMax = Math.max(9, filledHashes * 27);
   const [power, setPower] = useState<number>(server.power ?? Math.max(9, filledHashes * 9));
+  const powerMax = Math.max(9, filledHashes * 27, power);
   const [turnTcp, setTurnTcp] = useState(server.turnTcp ?? false);
 
   const handleHashSave = (h: [string, string, string, string]) => {

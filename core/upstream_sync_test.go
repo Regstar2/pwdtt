@@ -7,6 +7,7 @@ import (
     "sync"
     "sync/atomic"
     "testing"
+    "time"
 )
 
 func TestSelectTurnURLRotationAndBannedRelay(t *testing.T) {
@@ -83,4 +84,16 @@ func TestVKCallsOutdatedRetryAtMostOnce(t *testing.T) {
         }
         if err==nil && user!="alice" {t.Fatalf("success user=%q",user)}
     })}
+}
+
+func TestVKCallsOutdatedRetryHonorsCancellation(t *testing.T) {
+    ctx,cancel:=context.WithCancel(context.Background())
+    cancel()
+    count:=0
+    _,_,_,retried,err:=retryVKCallsOutdatedToken(ctx,time.Second,func()(string,string,[]string,error){
+        count++
+        return "", "", nil, newVKCallsFailure("step5 vchat.joinConversationByLink",vkCallsFailureOKCDN,
+            errors.New("error.webrtc.auth.anonym_token.outdated"))
+    })
+    if count!=1 || retried || !errors.Is(err,context.Canceled) {t.Fatalf("calls=%d retried=%v err=%v",count,retried,err)}
 }
