@@ -221,8 +221,7 @@ func RunSession(
 	pipeA, pipeB := connutil.AsyncPacketPipe()
 
 	sessCtx, sessCancel := context.WithCancel(ctx)
-	defer sessCancel()
-
+	// Cancel session before disabling its deadline-closing AfterFunc.
 	var sessionWg sync.WaitGroup
 	sessionWg.Add(1)
 	go func() {
@@ -261,6 +260,7 @@ func RunSession(
 		_ = pipeA.SetDeadline(time.Now())
 	})
 	defer stopRelay()
+	defer sessCancel()
 
 	go func() {
 		defer relayWg.Done()
